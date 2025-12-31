@@ -241,6 +241,79 @@ function renderCategories() {
     `).join('');
 }
 
+// Sync all Rada acts (one-time download of all NPA from Rada API)
+async function syncAllRadaActs() {
+    const btn = document.getElementById('sync-all-rada-btn');
+    if (!btn) {
+        console.error('sync-all-rada-btn not found!');
+        return;
+    }
+    
+    const originalText = btn.innerHTML;
+    
+    btn.disabled = true;
+    btn.innerHTML = '<span>⏳</span> Завантаження всіх НПА...';
+    
+    // Show notification
+    const notification = document.createElement('div');
+    notification.id = 'sync-notification';
+    notification.className = 'notification notification-info';
+    notification.style.cssText = 'position: fixed; top: 20px; right: 20px; z-index: 10000; padding: 16px; background: #3b82f6; color: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);';
+    notification.textContent = '⏳ Запущено завантаження всіх НПА з Rada API. Це може зайняти багато часу...';
+    document.body.appendChild(notification);
+    
+    try {
+        const response = await fetch(`${API_BASE}/legal-acts/rada-list/sync-all`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+            throw new Error(errorData.detail || `HTTP ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        // Update notification to success
+        notification.className = 'notification notification-success';
+        notification.style.background = '#10b981';
+        notification.textContent = `✅ ${data.message}`;
+        
+        // Remove notification after 5 seconds
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.parentNode.removeChild(notification);
+            }
+        }, 5000);
+        
+        // Refresh the list after a delay
+        setTimeout(() => {
+            loadRadaActsList(true);
+        }, 2000);
+        
+    } catch (error) {
+        console.error('Error syncing all Rada acts:', error);
+        
+        // Update notification to error
+        notification.className = 'notification notification-error';
+        notification.style.background = '#ef4444';
+        notification.textContent = `❌ Помилка: ${error.message}`;
+        
+        // Remove notification after 5 seconds
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.parentNode.removeChild(notification);
+            }
+        }, 5000);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+
 // Load Rada acts list (with pagination)
 async function loadRadaActsList(reset = true) {
     console.log('loadRadaActsList called, reset:', reset);

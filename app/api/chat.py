@@ -34,18 +34,47 @@ class ChatResponse(BaseModel):
 def search_relevant_acts(question: str, db: Session, limit: int = 10) -> List[Dict[str, Any]]:
     """Search for relevant legal acts based on question"""
     try:
+        # Split question into keywords for better search
+        keywords = question.lower().split()
+        keywords = [kw for kw in keywords if len(kw) > 2]  # Filter short words
+        
         # Search in title and text
         acts = db.query(LegalAct).filter(
             or_(
-                LegalAct.title.ilike(f"%{question}%"),
-                LegalAct.text.ilike(f"%{question}%"),
+                *[LegalAct.title.ilike(f"%{kw}%") for kw in keywords],
+                *[LegalAct.text.ilike(f"%{kw}%") for kw in keywords],
                 LegalAct.nreg.ilike(f"%{question}%")
             )
-        ).limit(limit).all()
+        ).limit(limit * 2).all()  # Get more to filter by relevance
+        
+        # Also search in extracted elements for processed acts
+        processed_acts = db.query(LegalAct).filter(
+            LegalAct.is_processed == True,
+            LegalAct.extracted_elements.isnot(None)
+        ).limit(limit * 2).all()
+        
+        # Check if extracted elements contain keywords
+        relevant_processed = []
+        for act in processed_acts:
+            if act.extracted_elements:
+                elements_str = str(act.extracted_elements).lower()
+                if any(kw in elements_str for kw in keywords):
+                    relevant_processed.append(act)
+        
+        # Combine and deduplicate
+        all_acts = list(acts) + relevant_processed
+        seen_nregs = set()
+        unique_acts = []
+        for act in all_acts:
+            if act.nreg not in seen_nregs:
+                seen_nregs.add(act.nreg)
+                unique_acts.append(act)
+            if len(unique_acts) >= limit:
+                break
         
         result = []
-        for act in acts:
-            result.append({
+        for act in unique_acts:
+            act_data = {
                 "nreg": act.nreg,
                 "title": act.title,
                 "document_type": act.document_type,
@@ -53,7 +82,21 @@ def search_relevant_acts(question: str, db: Session, limit: int = 10) -> List[Di
                 "is_processed": act.is_processed,
                 "date_acceptance": act.date_acceptance.isoformat() if act.date_acceptance else None,
                 "date_publication": act.date_publication.isoformat() if act.date_publication else None,
-            })
+            }
+            
+            # Include extracted elements if available
+            if act.is_processed and act.extracted_elements:
+                act_data["extracted_elements"] = act.extracted_elements
+                # Limit elements to avoid too much data
+                if isinstance(act.extracted_elements, dict):
+                    elements = act.extracted_elements.get("elements", [])
+                    if isinstance(elements, list) and len(elements) > 5:
+                        act_data["extracted_elements"] = {
+                            **act.extracted_elements,
+                            "elements": elements[:5]  # First 5 elements
+                        }
+            
+            result.append(act_data)
         return result
     except Exception as e:
         logger.error(f"Error searching acts: {e}")

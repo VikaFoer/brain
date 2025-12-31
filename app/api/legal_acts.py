@@ -24,6 +24,24 @@ class LegalActResponse(BaseModel):
         from_attributes = True
 
 
+class LegalActDetailResponse(BaseModel):
+    id: int
+    nreg: str
+    title: str
+    is_processed: bool
+    processed_at: Optional[str] = None
+    document_type: Optional[str] = None
+    status: Optional[str] = None
+    date_acceptance: Optional[str] = None
+    date_publication: Optional[str] = None
+    extracted_elements: Optional[dict] = None
+    extracted_relations: Optional[dict] = None
+    categories: List[dict] = []
+    
+    class Config:
+        from_attributes = True
+
+
 @router.get("/", response_model=List[LegalActResponse])
 async def get_legal_acts(
     skip: int = 0,
@@ -78,6 +96,43 @@ async def get_legal_act(nreg: str = Path(..., description="Номер реєст
     if not act:
         raise HTTPException(status_code=404, detail="Legal act not found")
     return act
+
+
+@router.get("/{nreg:path}/details", response_model=LegalActDetailResponse)
+async def get_legal_act_details(
+    nreg: str = Path(..., description="Номер реєстрації акту"),
+    db: Session = Depends(get_db)
+):
+    """Get detailed information about processed legal act including extracted elements"""
+    # Decode URL-encoded characters
+    nreg = unquote(nreg)
+    act = db.query(LegalAct).filter(LegalAct.nreg == nreg).first()
+    if not act:
+        raise HTTPException(status_code=404, detail="Legal act not found")
+    
+    # Get categories
+    categories = []
+    for act_cat in act.categories:
+        categories.append({
+            "id": act_cat.category.id,
+            "name": act_cat.category.name,
+            "confidence": act_cat.confidence
+        })
+    
+    return LegalActDetailResponse(
+        id=act.id,
+        nreg=act.nreg,
+        title=act.title,
+        is_processed=act.is_processed,
+        processed_at=act.processed_at.isoformat() if act.processed_at else None,
+        document_type=act.document_type,
+        status=act.status,
+        date_acceptance=act.date_acceptance.isoformat() if act.date_acceptance else None,
+        date_publication=act.date_publication.isoformat() if act.date_publication else None,
+        extracted_elements=act.extracted_elements,
+        extracted_relations=act.extracted_relations,
+        categories=categories
+    )
 
 
 @router.post("/{nreg:path}/process")

@@ -3,7 +3,7 @@ API endpoints for system status
 """
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from app.core.database import get_db
+from app.core.database import get_db, engine
 from app.models.category import Category
 from app.models.legal_act import LegalAct
 from app.core.config import settings
@@ -18,7 +18,6 @@ async def get_status(db: Session = Depends(get_db)):
     try:
         # Check if database is accessible
         from sqlalchemy import inspect, text
-        from app.core.database import engine
         
         try:
             inspector = inspect(engine)

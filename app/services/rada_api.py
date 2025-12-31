@@ -330,13 +330,50 @@ class RadaAPIService:
                     if response.status_code == 200:
                         import re
                         from urllib.parse import unquote
+                        from bs4 import BeautifulSoup
+                        
+                        # Parse HTML with BeautifulSoup for more reliable extraction
+                        soup = BeautifulSoup(response.text, 'html.parser')
                         
                         # Find all links to /laws/show/{nreg}
-                        # Pattern: /laws/show/{nreg} or /laws/show/{nreg}.json
-                        page_nregs = re.findall(r'/laws/show/([^"\s<>\.]+)', response.text)
+                        # Try multiple patterns
+                        page_nregs = []
+                        
+                        # Method 1: Find all <a> tags with href containing /laws/show/
+                        for link in soup.find_all('a', href=True):
+                            href = link.get('href', '')
+                            if '/laws/show/' in href:
+                                # Extract NREG from href
+                                match = re.search(r'/laws/show/([^"\s<>\.\?]+)', href)
+                                if match:
+                                    nreg = match.group(1)
+                                    # Remove .json, .txt, .html extensions if present
+                                    nreg = nreg.replace('.json', '').replace('.txt', '').replace('.html', '')
+                                    if nreg and nreg not in page_nregs:
+                                        page_nregs.append(nreg)
+                        
+                        # Method 2: Regex fallback if BeautifulSoup didn't find anything
+                        if not page_nregs:
+                            # Try more flexible regex patterns
+                            patterns = [
+                                r'/laws/show/([^"\s<>\.\?]+)',  # Original pattern
+                                r'/laws/show/([^"\s<>]+)',  # More permissive
+                                r'href=["\']/laws/show/([^"\']+)["\']',  # With quotes
+                            ]
+                            
+                            for pattern in patterns:
+                                matches = re.findall(pattern, response.text)
+                                if matches:
+                                    for match in matches:
+                                        nreg = match.replace('.json', '').replace('.txt', '').replace('.html', '')
+                                        if nreg and nreg not in page_nregs:
+                                            page_nregs.append(nreg)
+                                    break
                         
                         if not page_nregs:
-                            # No more documents found
+                            # Log response preview for debugging
+                            preview = response.text[:500] if len(response.text) > 500 else response.text
+                            logger.warning(f"No documents found on page {page}. Response preview: {preview[:200]}...")
                             logger.info(f"No more documents on page {page}")
                             break
                         
@@ -345,12 +382,14 @@ class RadaAPIService:
                         for nreg in page_nregs:
                             try:
                                 decoded = unquote(nreg)
+                                # Check if already in all_nregs (preserve order)
                                 if decoded not in all_nregs:
                                     decoded_nregs.append(decoded)
-                            except:
+                            except Exception as e:
                                 # If decoding fails, use as is
                                 if nreg not in all_nregs:
                                     decoded_nregs.append(nreg)
+                                logger.debug(f"Could not decode nreg {nreg}: {e}")
                         
                         all_nregs.extend(decoded_nregs)
                         

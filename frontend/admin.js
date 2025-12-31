@@ -235,16 +235,26 @@ function renderCategories() {
 
 // Load Rada acts list (with pagination)
 async function loadRadaActsList(reset = true) {
-    if (radaPagination.loading) return;
+    console.log('loadRadaActsList called, reset:', reset);
+    
+    if (radaPagination.loading) {
+        console.log('Already loading, skipping...');
+        return;
+    }
     
     const container = document.getElementById('rada-list');
     const statsContainer = document.getElementById('rada-stats');
+    
+    if (!container) {
+        console.error('rada-list container not found!');
+        return;
+    }
     
     if (reset) {
         radaPagination.skip = 0;
         radaActsList = [];
         container.innerHTML = '<p class="loading">Завантаження списку з Rada API...</p>';
-        statsContainer.innerHTML = '';
+        if (statsContainer) statsContainer.innerHTML = '';
     } else {
         // Show loading indicator at bottom
         const loadingIndicator = document.createElement('div');
@@ -257,8 +267,16 @@ async function loadRadaActsList(reset = true) {
     radaPagination.loading = true;
     
     try {
-        const response = await fetch(`${API_BASE}/legal-acts/rada-list?skip=${radaPagination.skip}&limit=${radaPagination.limit}`);
+        const url = `${API_BASE}/legal-acts/rada-list?skip=${radaPagination.skip}&limit=${radaPagination.limit}`;
+        console.log('Fetching from:', url);
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
         const data = await response.json();
+        console.log('Received data:', data);
         
         // Remove loading indicator
         const loadingIndicator = document.getElementById('rada-loading-indicator');

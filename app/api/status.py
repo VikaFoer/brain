@@ -65,6 +65,7 @@ async def get_status(db: Session = Depends(get_db)):
         
         # Show preview of DATABASE_URL (hide password)
         db_url_preview = None
+        db_connected = True
         if database_url and not is_sqlite:
             # Hide password in preview
             try:
@@ -82,13 +83,19 @@ async def get_status(db: Session = Depends(get_db)):
             except:
                 db_url_preview = "postgresql://***"
         
+        # Check if DATABASE_URL is set (for PostgreSQL)
+        if not database_url or database_url == "sqlite:///./legal_db.db":
+            db_connected = False
+            db_type = "not_configured"
+        
         return {
             "status": "online",
             "database": {
                 "type": db_type,
-                "connected": True,
+                "connected": db_connected,
                 "tables_exist": tables_exist,
                 "url_preview": db_url_preview,
+                "url_set": bool(database_url and database_url != "sqlite:///./legal_db.db"),
                 "categories_count": categories_count,
                 "legal_acts_count": acts_count,
                 "initialized": categories_count > 0

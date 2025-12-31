@@ -13,7 +13,13 @@ class Neo4jService:
     
     def create_category_node(self, category_id: int, name: str, element_count: int = 0):
         """Create or update category node"""
-        with get_neo4j_session() as session:
+        try:
+            session = get_neo4j_session()
+        except RuntimeError as e:
+            # Neo4j not configured, skip
+            return None
+        
+        with session:
             query = """
             MERGE (c:Category {id: $category_id})
             SET c.name = $name,
@@ -47,7 +53,11 @@ class Neo4jService:
         subset_id: Optional[int] = None
     ):
         """Create or update legal act node"""
-        with get_neo4j_session() as session:
+        try:
+            session = get_neo4j_session()
+        except RuntimeError:
+            return None
+        with session:
             query = """
             MERGE (a:LegalAct {id: $act_id})
             SET a.nreg = $nreg,
@@ -82,7 +92,11 @@ class Neo4jService:
         confidence: int = 100
     ):
         """Create relation between two legal acts"""
-        with get_neo4j_session() as session:
+        try:
+            session = get_neo4j_session()
+        except RuntimeError:
+            return None
+        with session:
             # Map relation types to Neo4j relationship types
             rel_type_map = {
                 "посилається": "REFERENCES",
@@ -117,7 +131,11 @@ class Neo4jService:
     
     def link_act_to_category(self, act_id: int, category_id: int):
         """Link legal act to category"""
-        with get_neo4j_session() as session:
+        try:
+            session = get_neo4j_session()
+        except RuntimeError:
+            return None
+        with session:
             query = """
             MATCH (a:LegalAct {id: $act_id})
             MATCH (c:Category {id: $category_id})
@@ -129,7 +147,11 @@ class Neo4jService:
     
     def get_category_graph(self, category_ids: List[int], depth: int = 2) -> Dict[str, Any]:
         """Get graph for selected categories"""
-        with get_neo4j_session() as session:
+        try:
+            session = get_neo4j_session()
+        except RuntimeError:
+            return {"nodes": [], "edges": []}
+        with session:
             query = """
             MATCH path = (c:Category)-[*1..%d]-(connected)
             WHERE c.id IN $category_ids
@@ -166,7 +188,11 @@ class Neo4jService:
         category2_id: int
     ) -> List[Dict[str, Any]]:
         """Get relations between two categories"""
-        with get_neo4j_session() as session:
+        try:
+            session = get_neo4j_session()
+        except RuntimeError:
+            return []
+        with session:
             query = """
             MATCH (c1:Category {id: $cat1_id})<-[:IN_CATEGORY]-(a1:LegalAct)
             MATCH (a1)-[r]->(a2:LegalAct)-[:IN_CATEGORY]->(c2:Category {id: $cat2_id})
@@ -199,7 +225,11 @@ class Neo4jService:
     
     def get_category_statistics(self) -> List[Dict[str, Any]]:
         """Get statistics for all categories"""
-        with get_neo4j_session() as session:
+        try:
+            session = get_neo4j_session()
+        except RuntimeError:
+            return []
+        with session:
             query = """
             MATCH (c:Category)
             OPTIONAL MATCH (c)<-[:BELONGS_TO]-(s:Subset)

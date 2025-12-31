@@ -221,13 +221,21 @@ class ProcessingService:
         
         self.db.commit()
         
-        # Sync to Neo4j
-        for category in self.db.query(Category).all():
-            neo4j_service.create_category_node(
-                category.id,
-                category.name,
-                category.element_count
-            )
+        # Sync to Neo4j (if configured)
+        try:
+            from app.core.neo4j_db import neo4j_driver
+            if neo4j_driver.get_driver() is not None:
+                for category in self.db.query(Category).all():
+                    neo4j_service.create_category_node(
+                        category.id,
+                        category.name,
+                        category.element_count
+                    )
+                logger.info("Categories synced to Neo4j")
+            else:
+                logger.info("Neo4j not configured, skipping graph sync")
+        except Exception as e:
+            logger.warning(f"Neo4j sync failed (non-critical): {e}")
         
         logger.info("Categories initialized")
 

@@ -219,22 +219,39 @@ async def chat(
         except:
             context["statistics"] = []
     
-    # Get processed acts with extracted elements
-    if "elements" in request.context_type.lower() or "елемент" in request.question.lower():
+    # Always include extracted elements from relevant acts if available
+    # This helps answer questions about content of legal acts
+    for act_data in relevant_acts:
+        if act_data.get("is_processed") and act_data.get("extracted_elements"):
+            # Elements already included in search_relevant_acts result
+            pass
+    
+    # Get additional processed acts with extracted elements for general questions
+    # This ensures we have context even if search didn't find exact matches
+    if len(relevant_acts) == 0 or any("функці" in request.question.lower() or "держав" in request.question.lower() or "конституці" in request.question.lower() for _ in [1]):
         processed_acts = db.query(LegalAct).filter(
             LegalAct.is_processed == True,
             LegalAct.extracted_elements.isnot(None)
-        ).limit(5).all()
+        ).limit(10).all()
         
-        context["processed_acts_with_elements"] = [
-            {
+        context["processed_acts_with_elements"] = []
+        for act in processed_acts:
+            act_info = {
                 "nreg": act.nreg,
                 "title": act.title,
                 "has_elements": bool(act.extracted_elements),
                 "has_relations": bool(act.extracted_relations)
             }
-            for act in processed_acts
-        ]
+            # Include extracted elements for better context
+            if act.extracted_elements:
+                if isinstance(act.extracted_elements, dict):
+                    elements = act.extracted_elements.get("elements", [])
+                    if isinstance(elements, list) and len(elements) > 0:
+                        # Include all elements, not just sample
+                        act_info["extracted_elements"] = act.extracted_elements
+                else:
+                    act_info["extracted_elements"] = act.extracted_elements
+            context["processed_acts_with_elements"].append(act_info)
     
     # Get answer from OpenAI with full context
     answer = await openai_service.chat_about_database(

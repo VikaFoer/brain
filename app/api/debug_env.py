@@ -8,7 +8,7 @@ from app.core.config import settings
 router = APIRouter()
 
 
-@router.get("/debug/env")
+@router.get("/env")
 async def debug_env():
     """
     Debug endpoint to see what environment variables are available

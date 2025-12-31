@@ -68,10 +68,21 @@ class RadaAPIService:
         try:
             async with httpx.AsyncClient() as client:
                 # URL encode the nreg properly
+                # According to Rada API docs, / should be encoded as %2F
+                # But we need to preserve the structure, so encode each part separately
                 from urllib.parse import quote
-                encoded_nreg = quote(nreg, safe='')
+                # Split by /, encode each part, then join with /
+                if '/' in nreg:
+                    parts = nreg.split('/')
+                    encoded_parts = [quote(part, safe='') for part in parts]
+                    encoded_nreg = '/'.join(encoded_parts)
+                else:
+                    encoded_nreg = quote(nreg, safe='')
+                
                 url = f"{self.base_url}/laws/show/{encoded_nreg}.json"
                 headers = self._get_headers(use_token=True)
+                
+                logger.debug(f"Requesting document: original nreg={nreg}, encoded={encoded_nreg}, url={url}")
                 
                 logger.debug(f"Requesting document from: {url}")
                 response = await client.get(url, headers=headers, timeout=60.0)

@@ -8,8 +8,8 @@ from typing import Optional
 class Settings(BaseSettings):
     # OpenAI
     OPENAI_API_KEY: Optional[str] = None
-    OPENAI_MODEL: str = "gpt-4o"  # Latest model - GPT-4o (Omni)
-    OPENAI_CHAT_MODEL: str = "gpt-4o"  # Model specifically for chat (can be different from extraction)
+    OPENAI_MODEL: str = "gpt-5.2-pro"  # Latest model - GPT-5.2 Pro
+    OPENAI_CHAT_MODEL: str = "gpt-5.2-pro"  # Model specifically for chat (can be different from extraction)
     
     # Rada API
     RADA_API_TOKEN: Optional[str] = None

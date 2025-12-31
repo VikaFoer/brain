@@ -385,14 +385,19 @@ function renderRadaActsList() {
         
         return `
             <div class="rada-act-item ${statusClass}">
-                <div class="rada-act-nreg">${escapeHtml(act.nreg)}</div>
+                <div class="rada-act-info">
+                    <div class="rada-act-nreg">${escapeHtml(act.nreg)}</div>
+                    ${act.title && act.title !== act.nreg ? `
+                        <div class="rada-act-title">${escapeHtml(act.title)}</div>
+                    ` : ''}
+                </div>
                 <div class="rada-act-status">
                     <span class="status-icon">${statusIcon}</span>
                     <span class="status-text">${statusText}</span>
                 </div>
-                ${act.status === 'not_loaded' ? `
-                    <button class="btn btn-sm btn-primary load-act-btn" data-nreg="${escapeHtml(act.nreg)}">
-                        Завантажити
+                ${act.status !== 'processed' ? `
+                    <button class="btn btn-sm btn-success process-act-btn" data-nreg="${escapeHtml(act.nreg)}">
+                        <span>⚙️</span> Опрацювати
                     </button>
                 ` : ''}
             </div>

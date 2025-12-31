@@ -163,23 +163,41 @@ async def process_legal_act(
     # Decode URL-encoded characters
     nreg = unquote(nreg)
     
+    # Check if OpenAI is configured
+    from app.core.config import settings
+    if not settings.OPENAI_API_KEY:
+        raise HTTPException(
+            status_code=400,
+            detail="OpenAI API key is not configured. Please set OPENAI_API_KEY environment variable."
+        )
+    
     from app.core.database import SessionLocal
     import asyncio
+    import logging
+    
+    logger = logging.getLogger(__name__)
     
     async def process():
         # Create new session for background task
         bg_db = SessionLocal()
         try:
+            logger.info(f"Starting background processing for {nreg}")
             bg_service = ProcessingService(bg_db)
-            await bg_service.process_legal_act(nreg)
+            result = await bg_service.process_legal_act(nreg)
+            if result:
+                logger.info(f"Successfully processed {nreg}")
+            else:
+                logger.warning(f"Processing failed for {nreg}")
+        except Exception as e:
+            logger.error(f"Error processing {nreg}: {e}", exc_info=True)
         finally:
             bg_db.close()
     
     if background_tasks:
         background_tasks.add_task(lambda: asyncio.run(process()))
+        return {"message": f"Processing started for {nreg}", "status": "queued"}
     else:
         # If no background tasks, process synchronously (for testing)
         import asyncio
         asyncio.run(process())
-    
-    return {"message": f"Processing started for {nreg}"}
+        return {"message": f"Processing completed for {nreg}", "status": "completed"}

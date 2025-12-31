@@ -36,6 +36,8 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
+        # Railway автоматично інжектує змінні середовища, тому не потрібно env_file на Railway
+        # Але залишаємо для локальної розробки
 
 
 settings = Settings()

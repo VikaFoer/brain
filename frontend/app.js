@@ -331,7 +331,7 @@ async function sendMessage() {
     const loadingId = addChatMessage('assistant', 'Обробка запиту...');
 
     try {
-        const selectedCategories = getSelectedCategories();
+        // Use global selectedCategories variable
         const response = await fetch(`${API_BASE}/chat/`, {
             method: 'POST',
             headers: {

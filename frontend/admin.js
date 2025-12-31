@@ -613,6 +613,119 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
+// Auto-download function
+async function startAutoDownload() {
+    const btn = document.getElementById('auto-download-btn');
+    const originalText = btn.innerHTML;
+    
+    // Disable button
+    btn.disabled = true;
+    btn.innerHTML = '<span>⏳</span> Завантаження...';
+    
+    try {
+        const response = await fetch(`${API_BASE}/legal-acts/auto-download?count=10`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+            throw new Error(errorData.detail || `HTTP ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        // Show success message
+        showNotification('success', `✅ Автозавантаження запущено! Буде оброблено ${data.count} документів у порядку з сайту Rada.`, 5000);
+        
+        // Refresh acts list after a delay
+        setTimeout(() => {
+            loadActs();
+            loadStats();
+        }, 3000);
+        
+    } catch (error) {
+        console.error('Error starting auto-download:', error);
+        showNotification('error', `❌ Помилка: ${error.message}`, 5000);
+    } finally {
+        // Re-enable button after delay
+        setTimeout(() => {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }, 2000);
+    }
+}
+
+// Show notification
+function showNotification(type, message, duration = 3000) {
+    // Remove existing notifications
+    const existing = document.querySelectorAll('.notification');
+    existing.forEach(n => n.remove());
+    
+    // Create notification element
+    const notification = document.createElement('div');
+    notification.className = `notification notification-${type}`;
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 16px 24px;
+        background: ${type === 'success' ? '#10b981' : '#ef4444'};
+        color: white;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        z-index: 10000;
+        max-width: 400px;
+        animation: slideIn 0.3s ease-out;
+        font-size: 14px;
+        line-height: 1.5;
+    `;
+    notification.textContent = message;
+    
+    document.body.appendChild(notification);
+    
+    // Remove after duration
+    setTimeout(() => {
+        notification.style.animation = 'slideOut 0.3s ease-out';
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.parentNode.removeChild(notification);
+            }
+        }, 300);
+    }, duration);
+}
+
+// Add CSS for notification animation
+if (!document.getElementById('notification-styles')) {
+    const style = document.createElement('style');
+    style.id = 'notification-styles';
+    style.textContent = `
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        @keyframes slideOut {
+            from {
+                transform: translateX(0);
+                opacity: 1;
+            }
+            to {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+        }
+    `;
+    document.head.appendChild(style);
+}
+
 // Make functions available globally
 window.showActDetails = showActDetails;
 window.processAct = processAct;

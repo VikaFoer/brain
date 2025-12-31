@@ -557,10 +557,14 @@ async function processNewAct() {
         console.error('Error processing act:', error);
         statusDiv.classList.remove('info');
         statusDiv.classList.add('error');
+        const errorMsg = error.message || 'Невідома помилка';
         statusDiv.innerHTML = `
             <div style="display: flex; align-items: center; gap: 8px;">
                 <span>❌</span>
-                <div style="font-weight: 600;">Помилка при запуску обробки</div>
+                <div>
+                    <div style="font-weight: 600; margin-bottom: 4px;">Помилка при запуску обробки</div>
+                    <div style="font-size: 0.9rem; opacity: 0.9;">${errorMsg}</div>
+                </div>
             </div>
         `;
     }

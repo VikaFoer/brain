@@ -60,23 +60,41 @@ class RadaAPIService:
         """Get full document in JSON format"""
         await self._rate_limit()
         
+        # Try to get token if not set
+        if not self.token:
+            logger.info("RADA_API_TOKEN not set, trying to get token automatically...")
+            self.token = await self.get_token()
+        
         try:
             async with httpx.AsyncClient() as client:
-                url = f"{self.base_url}/laws/show/{nreg}.json"
+                # URL encode the nreg properly
+                from urllib.parse import quote
+                encoded_nreg = quote(nreg, safe='')
+                url = f"{self.base_url}/laws/show/{encoded_nreg}.json"
                 headers = self._get_headers(use_token=True)
                 
+                logger.debug(f"Requesting document from: {url}")
                 response = await client.get(url, headers=headers, timeout=60.0)
                 
                 if response.status_code == 200:
                     return response.json()
                 elif response.status_code == 404:
-                    logger.warning(f"Document {nreg} not found")
+                    logger.warning(f"Document {nreg} not found (404)")
+                    return None
+                elif response.status_code == 403:
+                    logger.warning(f"Access forbidden for {nreg} (403) - may need valid token")
+                    # Try without token
+                    headers_no_token = self._get_headers(use_token=False)
+                    response2 = await client.get(url, headers=headers_no_token, timeout=60.0)
+                    if response2.status_code == 200:
+                        logger.info(f"Successfully retrieved {nreg} without token")
+                        return response2.json()
                     return None
                 else:
-                    logger.error(f"Error getting document {nreg}: {response.status_code}")
+                    logger.error(f"Error getting document {nreg}: {response.status_code} - {response.text[:200]}")
                     return None
         except Exception as e:
-            logger.error(f"Exception getting document {nreg}: {e}")
+            logger.error(f"Exception getting document {nreg}: {e}", exc_info=True)
             return None
     
     async def get_document_card(self, nreg: str) -> Optional[Dict[str, Any]]:

@@ -184,9 +184,11 @@ async def check_legal_act_exists(
     
     # Check on Rada website
     try:
+        logger.info(f"Checking act {nreg} on Rada website...")
         document_json = await rada_api.get_document_json(nreg)
         if document_json:
             title = document_json.get("title", nreg)
+            logger.info(f"Act {nreg} found on Rada website: {title}")
             return {
                 "exists": True,
                 "in_database": False,
@@ -195,15 +197,39 @@ async def check_legal_act_exists(
                 "message": f"Акт знайдено на сайті data.rada.gov.ua: {title}"
             }
         else:
+            logger.warning(f"Act {nreg} not found on Rada website")
+            # Try alternative formats
+            alternative_nregs = [
+                nreg.replace('/', '-'),
+                nreg.replace('к', 'к/'),
+                nreg.upper(),
+                nreg.lower()
+            ]
+            
+            for alt_nreg in alternative_nregs:
+                if alt_nreg == nreg:
+                    continue
+                logger.info(f"Trying alternative format: {alt_nreg}")
+                alt_doc = await rada_api.get_document_json(alt_nreg)
+                if alt_doc:
+                    title = alt_doc.get("title", alt_nreg)
+                    return {
+                        "exists": True,
+                        "in_database": False,
+                        "is_processed": False,
+                        "title": title,
+                        "message": f"Акт знайдено на сайті data.rada.gov.ua (альтернативний формат): {title}"
+                    }
+            
             return {
                 "exists": False,
                 "in_database": False,
                 "is_processed": False,
                 "title": None,
-                "message": f"Акт {nreg} не знайдено на сайті data.rada.gov.ua"
+                "message": f"Акт {nreg} не знайдено на сайті data.rada.gov.ua. Перевірте правильність номера реєстрації."
             }
     except Exception as e:
-        logger.error(f"Error checking act {nreg}: {e}")
+        logger.error(f"Error checking act {nreg}: {e}", exc_info=True)
         return {
             "exists": False,
             "in_database": False,

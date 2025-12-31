@@ -3,6 +3,7 @@ Service for working with Rada API
 """
 import httpx
 import asyncio
+import json
 from typing import Optional, Dict, List, Any
 from app.core.config import settings
 import logging

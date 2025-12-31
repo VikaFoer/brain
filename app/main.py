@@ -53,13 +53,39 @@ async def startup_event():
         if not is_sqlite:
             from app.core.database import SessionLocal
             from app.models.category import Category
+            from app.services.processing_service import ProcessingService
+            import asyncio
+            
             db = SessionLocal()
             try:
                 category_count = db.query(Category).count()
                 if category_count == 0:
                     logger.warning("⚠️  No categories found in database!")
-                    logger.warning("⚠️  Please initialize: POST /api/legal-acts/initialize-categories")
-                    print("⚠️  No categories found! Initialize: POST /api/legal-acts/initialize-categories")
+                    logger.info("🔄 Attempting to auto-initialize categories...")
+                    print("⚠️  No categories found! Auto-initializing...")
+                    
+                    # Try to auto-initialize categories
+                    try:
+                        processing_service = ProcessingService(db)
+                        asyncio.run(processing_service.initialize_categories())
+                        db.commit()
+                        
+                        # Check again
+                        new_count = db.query(Category).count()
+                        if new_count > 0:
+                            logger.info(f"✅ Successfully auto-initialized {new_count} categories!")
+                            print(f"✅ Auto-initialized {new_count} categories!")
+                        else:
+                            logger.warning("⚠️  Auto-initialization failed, please initialize manually")
+                            print("⚠️  Auto-initialization failed. Please initialize: POST /api/legal-acts/initialize-categories")
+                    except Exception as init_error:
+                        logger.error(f"Error auto-initializing categories: {init_error}")
+                        logger.warning("⚠️  Please initialize manually: POST /api/legal-acts/initialize-categories")
+                        print(f"⚠️  Auto-initialization error: {init_error}")
+                        print("⚠️  Please initialize manually: POST /api/legal-acts/initialize-categories")
+                else:
+                    logger.info(f"✔ Found {category_count} categories in database")
+                    print(f"✔ Found {category_count} categories in database")
             except Exception as e:
                 logger.debug(f"Could not check categories: {e}")
             finally:

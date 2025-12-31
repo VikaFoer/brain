@@ -21,6 +21,23 @@ app = FastAPI(
 @app.on_event("startup")
 async def startup_event():
     """Create database tables if they don't exist"""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Check database type
+    database_url = settings.DATABASE_URL or "sqlite:///./legal_db.db"
+    is_sqlite = database_url.startswith("sqlite")
+    
+    if is_sqlite:
+        logger.warning("⚠️  WARNING: Using SQLite database!")
+        logger.warning("⚠️  SQLite data will be LOST on Railway after each deploy!")
+        logger.warning("⚠️  Please add PostgreSQL service in Railway Dashboard!")
+        logger.warning("⚠️  See FIX_DATABASE_LOSS.md for instructions")
+        print("⚠️  WARNING: SQLite will lose data on Railway!")
+    else:
+        logger.info("✔ Using PostgreSQL database (persistent)")
+        print("✔ Using PostgreSQL database (persistent)")
+    
     try:
         # Check if database is accessible
         from sqlalchemy import text
@@ -29,8 +46,26 @@ async def startup_event():
         
         # Create tables
         Base.metadata.create_all(bind=engine)
+        logger.info("✔ Database tables created/verified")
         print("✅ Database tables created/verified")
+        
+        # Check if categories exist (only for PostgreSQL)
+        if not is_sqlite:
+            from app.core.database import SessionLocal
+            from app.models.category import Category
+            db = SessionLocal()
+            try:
+                category_count = db.query(Category).count()
+                if category_count == 0:
+                    logger.warning("⚠️  No categories found in database!")
+                    logger.warning("⚠️  Please initialize: POST /api/legal-acts/initialize-categories")
+                    print("⚠️  No categories found! Initialize: POST /api/legal-acts/initialize-categories")
+            except Exception as e:
+                logger.debug(f"Could not check categories: {e}")
+            finally:
+                db.close()
     except Exception as e:
+        logger.error(f"✗ Database initialization error: {e}")
         print(f"⚠️  Database initialization warning: {e}")
         print("⚠️  Application will continue but database features may not work")
         # Don't raise - allow app to start even if DB fails

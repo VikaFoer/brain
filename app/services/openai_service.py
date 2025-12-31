@@ -107,9 +107,16 @@ class OpenAIService:
     ],
     "metadata": {
         "main_category": "основна категорія",
-        "complexity": "простий/середній/складний"
+        "complexity": "простий/середній/складний",
+        "total_elements_found": "загальна кількість знайдених елементів"
     }
-}"""
+}
+
+КРИТИЧНО ВАЖЛИВО:
+- Виділи ВСІ статті, пункти та підпункти з акту
+- Не пропускай жодних елементів
+- Для Конституції та кодексів виділи ВСІ статті без винятку
+- Якщо акт містить 100+ статей, виділи всі 100+"""
 
         # Use more text for better extraction (up to 50k chars for important documents)
         text_limit = 50000  # Increased from 15k to capture more elements

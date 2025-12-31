@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None
     OPENAI_MODEL: str = "gpt-5.2-pro"  # Latest model - GPT-5.2 Pro
     OPENAI_CHAT_MODEL: str = "gpt-5.2-pro"  # Model specifically for chat (can be different from extraction)
+    OPENAI_REASONING_EFFORT: str = "high"  # Reasoning effort: medium, high, very_high (for GPT-5.2 Pro)
     
     # Rada API
     RADA_API_TOKEN: Optional[str] = None

@@ -332,12 +332,21 @@ class OpenAIService:
         try:
             # Use chat-specific model if available, otherwise use default
             chat_model = getattr(self, 'chat_model', self.model)
-            response = await self.client.chat.completions.create(
-                model=chat_model,
-                messages=messages,
-                temperature=0.7,
-                max_tokens=2000  # Increased for better responses
-            )
+            
+            # Prepare API call parameters
+            api_params = {
+                "model": chat_model,
+                "messages": messages,
+                "temperature": 0.7,
+                "max_tokens": 4000  # GPT-5.2 Pro supports up to 128k tokens in response
+            }
+            
+            # Add reasoning effort for GPT-5.2 Pro
+            if "gpt-5.2" in chat_model.lower():
+                reasoning_effort = getattr(settings, 'OPENAI_REASONING_EFFORT', 'high')
+                api_params["reasoning_effort"] = reasoning_effort
+            
+            response = await self.client.chat.completions.create(**api_params)
             
             return response.choices[0].message.content
             

@@ -77,32 +77,6 @@ async def get_legal_acts(
     return result
 
 
-@router.get("/nregs/list")
-async def get_all_nregs(
-    limit: Optional[int] = None,
-    db: Session = Depends(get_db)
-):
-    """Get list of all NREG identifiers from Rada website"""
-    from app.services.rada_api import rada_api
-    import logging
-    
-    logger = logging.getLogger(__name__)
-    
-    try:
-        logger.info(f"Fetching all NREG identifiers (limit: {limit})...")
-        nregs = await rada_api.get_all_documents_list(limit=limit)
-        
-        return {
-            "total": len(nregs),
-            "nregs": nregs,
-            "message": f"Отримано {len(nregs)} ідентифікаторів"
-        }
-    except Exception as e:
-        logger.error(f"Error getting NREG list: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Помилка при отриманні списку ідентифікаторів: {str(e)}"
-        )
 
 
 @router.post("/initialize-categories")

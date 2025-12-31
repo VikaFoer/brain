@@ -40,6 +40,9 @@ class LegalAct(Base):
     extracted_elements = Column(JSON, nullable=True)  # Виділені елементи множини
     extracted_relations = Column(JSON, nullable=True)  # Виявлені зв'язки
     
+    # Embeddings (for semantic search)
+    embeddings = Column(JSON, nullable=True)  # Embeddings з chunking: {"embeddings": [[...], ...], "chunks": [...], "model": "...", "dimensions": ...}
+    
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     

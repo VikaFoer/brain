@@ -9,6 +9,7 @@ from app.models.subset import Subset
 from app.services.rada_api import rada_api
 from app.services.openai_service import openai_service
 from app.services.neo4j_service import neo4j_service
+from app.services.embeddings_service import embeddings_service
 from datetime import datetime
 import logging
 

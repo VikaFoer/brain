@@ -237,15 +237,23 @@ class ProcessingService:
                     act.extracted_elements = None
                     self.db.commit()
         
-        # Sync to Neo4j if not already synced
-        neo4j_service.create_legal_act_node(
-            act.id,
-            act.nreg,
-            act.title,
-            act.subset_id
-        )
+        # Sync to Neo4j if not already synced (only if processed)
+        if act.is_processed:
+            try:
+                neo4j_service.create_legal_act_node(
+                    act.id,
+                    act.nreg,
+                    act.title,
+                    act.subset_id
+                )
+            except RuntimeError:
+                logger.warning("Neo4j not configured, skipping sync")
         
-        logger.info(f"Successfully processed act {nreg}")
+        if act.is_processed:
+            logger.info(f"Successfully processed act {nreg}")
+        else:
+            logger.warning(f"Act {nreg} was not fully processed")
+        
         return act
     
     async def initialize_categories(self):

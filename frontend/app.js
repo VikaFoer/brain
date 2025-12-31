@@ -303,6 +303,12 @@ function switchTab(tab) {
         chatInput.disabled = false;
         sendBtn.disabled = false;
         chatInput.placeholder = "Задайте питання про акти, категорії, зв'язки...";
+        
+        // Show welcome message if chat is empty
+        const chatMessages = document.getElementById('chat-messages');
+        if (chatMessages && chatMessages.children.length === 0) {
+            addChatMessage('assistant', 'Привіт! Я допоможу вам з аналізом нормативно-правових актів. Задайте питання про акти, категорії, зв\'язки або статистику бази даних.');
+        }
     }
 }
 

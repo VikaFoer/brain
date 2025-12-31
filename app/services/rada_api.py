@@ -132,9 +132,19 @@ class RadaAPIService:
         
         try:
             async with httpx.AsyncClient() as client:
-                url = f"{self.base_url}/laws/card/{nreg}.json"
+                # URL encode the nreg properly (same as get_document_json)
+                from urllib.parse import quote
+                if '/' in nreg:
+                    parts = nreg.split('/')
+                    encoded_parts = [quote(part, safe='') for part in parts]
+                    encoded_nreg = '/'.join(encoded_parts)
+                else:
+                    encoded_nreg = quote(nreg, safe='')
+                
+                url = f"{self.base_url}/laws/card/{encoded_nreg}.json"
                 headers = self._get_headers(use_token=True)
                 
+                logger.debug(f"Requesting card: original nreg={nreg}, encoded={encoded_nreg}, url={url}")
                 response = await client.get(url, headers=headers, timeout=30.0)
                 
                 if response.status_code == 200:
@@ -152,9 +162,19 @@ class RadaAPIService:
         
         try:
             async with httpx.AsyncClient() as client:
-                url = f"{self.base_url}/laws/show/{nreg}.txt"
+                # URL encode the nreg properly (same as get_document_json)
+                from urllib.parse import quote
+                if '/' in nreg:
+                    parts = nreg.split('/')
+                    encoded_parts = [quote(part, safe='') for part in parts]
+                    encoded_nreg = '/'.join(encoded_parts)
+                else:
+                    encoded_nreg = quote(nreg, safe='')
+                
+                url = f"{self.base_url}/laws/show/{encoded_nreg}.txt"
                 headers = self._get_headers(use_token=False)  # TXT doesn't need token
                 
+                logger.debug(f"Requesting text: original nreg={nreg}, encoded={encoded_nreg}, url={url}")
                 response = await client.get(url, headers=headers, timeout=60.0)
                 
                 if response.status_code == 200:

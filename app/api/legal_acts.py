@@ -269,49 +269,42 @@ async def get_rada_acts_list(
     db: Session = Depends(get_db)
 ):
     """
-    Отримати список всіх можливих НПА з Rada API
-    Повертає список NREG з інформацією про те, які вже завантажені
+    Отримати список всіх НПА з бази даних
+    Повертає список NREG з інформацією про те, які вже завантажені та оброблені
     """
-    from app.services.rada_api import rada_api
     import logging
     
     logger = logging.getLogger(__name__)
     
     try:
-        logger.info("Fetching all documents list from Rada API...")
-        all_nregs = await rada_api.get_all_documents_list(limit=limit)
+        # Get all NREGs from database (already loaded from Rada)
+        all_acts = db.query(LegalAct).order_by(LegalAct.nreg).all()
         
-        if not all_nregs:
-            # Try fallback methods
-            logger.info("Trying fallback: get_new_documents_list")
-            all_nregs = await rada_api.get_new_documents_list(days=365)
-        
-        if not all_nregs:
+        if not all_acts:
             return {
                 "total": 0,
                 "loaded": 0,
+                "processed": 0,
                 "not_loaded": 0,
-                "acts": []
+                "skip": skip,
+                "limit": limit,
+                "has_more": False,
+                "acts": [],
+                "message": "Список НПА порожній. Натисніть 'Завантажити всі НПА' для отримання переліку."
             }
-        
-        # Get all NREGs from database
-        db_nregs = {act.nreg for act in db.query(LegalAct.nreg).all()}
-        processed_nregs = {act.nreg for act in db.query(LegalAct.nreg).filter(LegalAct.is_processed == True).all()}
         
         # Build response with status for each NREG
         acts_list = []
-        for nreg in all_nregs:
-            is_in_db = nreg in db_nregs
-            is_processed = nreg in processed_nregs
-            
+        for act in all_acts:
             acts_list.append({
-                "nreg": nreg,
-                "in_database": is_in_db,
-                "is_processed": is_processed,
-                "status": "processed" if is_processed else ("loaded" if is_in_db else "not_loaded")
+                "nreg": act.nreg,
+                "title": act.title if act.title else act.nreg,
+                "in_database": True,  # All acts in DB are loaded
+                "is_processed": act.is_processed if act.is_processed else False,
+                "status": "processed" if act.is_processed else "loaded"
             })
         
-        loaded_count = len([a for a in acts_list if a["in_database"]])
+        loaded_count = len(acts_list)
         processed_count = len([a for a in acts_list if a["is_processed"]])
         
         # Apply pagination
@@ -322,7 +315,7 @@ async def get_rada_acts_list(
             "total": total_count,
             "loaded": loaded_count,
             "processed": processed_count,
-            "not_loaded": total_count - loaded_count,
+            "not_loaded": 0,  # All are in DB
             "skip": skip,
             "limit": limit,
             "has_more": skip + limit < total_count,
@@ -335,6 +328,119 @@ async def get_rada_acts_list(
             status_code=500,
             detail=f"Error fetching Rada acts list: {str(e)}"
         )
+
+
+@router.post("/rada-list/sync-all")
+async def sync_all_rada_acts(
+    background_tasks: BackgroundTasks = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Одноразове завантаження ВСІХ НПА з Rada API в базу даних
+    Створює записи з мінімальною інформацією (nreg, title) для подальшого відстеження
+    """
+    from app.services.rada_api import rada_api
+    from app.core.database import SessionLocal
+    import asyncio
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
+    async def sync_all_acts():
+        """Background task для завантаження всіх НПА"""
+        bg_db = SessionLocal()
+        try:
+            logger.info("Starting sync of ALL legal acts from Rada API...")
+            
+            # Get all NREGs from Rada API (without limit)
+            all_nregs = await rada_api.get_all_documents_list(limit=None)
+            
+            if not all_nregs:
+                logger.error("No documents found from Rada API")
+                return
+            
+            logger.info(f"Found {len(all_nregs)} total documents from Rada API")
+            
+            # Get existing NREGs from database
+            existing_nregs = {act.nreg for act in bg_db.query(LegalAct.nreg).all()}
+            
+            # Create or update acts in database
+            created = 0
+            updated = 0
+            skipped = 0
+            
+            for nreg in all_nregs:
+                try:
+                    # Check if already exists
+                    act = bg_db.query(LegalAct).filter(LegalAct.nreg == nreg).first()
+                    
+                    if act:
+                        # Update if needed (e.g., if title is missing)
+                        if not act.title or act.title == act.nreg:
+                            # Try to get title from Rada API
+                            try:
+                                await rada_api._rate_limit()
+                                card_json = await rada_api.get_document_card(nreg)
+                                if card_json and card_json.get("title"):
+                                    act.title = card_json.get("title")
+                                    updated += 1
+                                else:
+                                    skipped += 1
+                            except:
+                                skipped += 1
+                        else:
+                            skipped += 1
+                    else:
+                        # Create new act with minimal info
+                        # Try to get title from Rada API
+                        title = nreg  # Default title
+                        try:
+                            await rada_api._rate_limit()
+                            card_json = await rada_api.get_document_card(nreg)
+                            if card_json and card_json.get("title"):
+                                title = card_json.get("title")
+                        except:
+                            pass  # Use default title
+                        
+                        new_act = LegalAct(
+                            nreg=nreg,
+                            title=title,
+                            is_processed=False
+                        )
+                        bg_db.add(new_act)
+                        created += 1
+                    
+                    # Commit every 100 acts
+                    if (created + updated) % 100 == 0:
+                        bg_db.commit()
+                        logger.info(f"Progress: {created} created, {updated} updated, {skipped} skipped (total processed: {created + updated})")
+                
+                except Exception as e:
+                    logger.error(f"Error processing NREG {nreg}: {e}")
+                    bg_db.rollback()
+                    continue
+            
+            # Final commit
+            bg_db.commit()
+            logger.info(f"Sync completed: {created} created, {updated} updated, {skipped} skipped, total: {len(all_nregs)}")
+            
+        except Exception as e:
+            logger.error(f"Error in sync_all_acts background task: {e}", exc_info=True)
+        finally:
+            bg_db.close()
+    
+    if background_tasks:
+        background_tasks.add_task(lambda: asyncio.run(sync_all_acts()))
+        return {
+            "message": "Синхронізація всіх НПА з Rada API запущена в фоновому режимі",
+            "status": "queued"
+        }
+    else:
+        await sync_all_acts()
+        return {
+            "message": "Синхронізація всіх НПА з Rada API завершена",
+            "status": "completed"
+        }
 
 
 @router.post("/auto-download")

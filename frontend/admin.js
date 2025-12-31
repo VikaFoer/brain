@@ -59,6 +59,14 @@ function setupEventListeners() {
     } else {
         console.error('load-rada-list-btn not found!');
     }
+    
+    // Sync all Rada acts button
+    const syncAllRadaBtn = document.getElementById('sync-all-rada-btn');
+    if (syncAllRadaBtn) {
+        syncAllRadaBtn.addEventListener('click', syncAllRadaActs);
+    } else {
+        console.error('sync-all-rada-btn not found!');
+    }
 
     // Close modals
     document.getElementById('close-modal').addEventListener('click', closeDetailsModal);
@@ -391,11 +399,15 @@ function renderRadaActsList() {
         `;
     }).join('');
     
-    // Add event listeners for load buttons
-    listContainer.querySelectorAll('.load-act-btn').forEach(btn => {
+    // Add event listeners for process buttons
+    listContainer.querySelectorAll('.process-act-btn').forEach(btn => {
         btn.addEventListener('click', async (e) => {
-            const nreg = e.target.dataset.nreg;
-            await processNewAct(nreg);
+            const nreg = e.target.closest('.process-act-btn').dataset.nreg;
+            await processAct(nreg);
+            // Refresh list after processing
+            setTimeout(() => {
+                loadRadaActsList(true);
+            }, 2000);
         });
     });
     

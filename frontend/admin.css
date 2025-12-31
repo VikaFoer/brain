@@ -815,6 +815,24 @@ header p {
     flex-wrap: wrap;
 }
 
+.rada-list-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.btn-secondary {
+    background: var(--bg-light);
+    color: var(--text);
+    border: 1px solid var(--border);
+}
+
+.btn-secondary:hover {
+    background: var(--bg-hover);
+    border-color: var(--primary);
+    transform: translateY(-2px);
+}
+
 .rada-stats {
     display: flex;
     gap: 20px;
@@ -861,9 +879,23 @@ header p {
     border-radius: 12px;
     padding: 16px;
     display: flex;
-    flex-direction: column;
-    gap: 12px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
     transition: all 0.3s ease;
+}
+
+.rada-act-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.rada-act-title {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    margin-top: 4px;
+    word-break: break-word;
 }
 
 .rada-act-item:hover {

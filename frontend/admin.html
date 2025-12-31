@@ -98,13 +98,18 @@
                 <!-- Rada list tab -->
                 <div id="rada-list-tab" class="tab-content">
                     <div class="rada-list-header">
-                        <button id="load-rada-list-btn" class="btn btn-primary">
-                            <span>🔄</span> Завантажити список з Rada
-                        </button>
+                        <div class="rada-list-actions">
+                            <button id="sync-all-rada-btn" class="btn btn-primary">
+                                <span>📥</span> Завантажити всі НПА з Rada
+                            </button>
+                            <button id="load-rada-list-btn" class="btn btn-secondary">
+                                <span>🔄</span> Оновити список
+                            </button>
+                        </div>
                         <div id="rada-stats" class="rada-stats"></div>
                     </div>
                     <div id="rada-list" class="rada-list">
-                        <p class="loading">Натисніть "Завантажити список з Rada" для отримання переліку всіх НПА</p>
+                        <p class="loading">Натисніть "Завантажити всі НПА з Rada" для одноразового завантаження переліку всіх НПА</p>
                     </div>
                 </div>
 

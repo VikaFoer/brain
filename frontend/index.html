@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Legal Graph System - Аналіз нормативно-правових актів</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🏛️ Legal Graph System</h1>
+            <p>Аналіз зв'язків між нормативно-правовими актами України</p>
+        </header>
+
+        <div class="main-content">
+            <!-- Sidebar -->
+            <aside class="sidebar">
+                <section class="category-selector">
+                    <h2>Вибір категорій (множин)</h2>
+                    <div id="category-list" class="category-list">
+                        <p class="loading">Завантаження категорій...</p>
+                    </div>
+                    <button id="load-graph-btn" class="btn btn-primary" disabled>
+                        Побудувати граф
+                    </button>
+                </section>
+
+                <section class="graph-controls">
+                    <h3>Налаштування графа</h3>
+                    <label>
+                        Глибина зв'язків:
+                        <input type="range" id="depth-slider" min="1" max="5" value="2">
+                        <span id="depth-value">2</span>
+                    </label>
+                </section>
+
+                <section class="statistics">
+                    <h3>Статистика</h3>
+                    <div id="stats-content"></div>
+                </section>
+            </aside>
+
+            <!-- Main area -->
+            <main class="main-area">
+                <div class="tabs">
+                    <button class="tab-btn active" data-tab="graph">Граф зв'язків</button>
+                    <button class="tab-btn" data-tab="chat">Чат-аналітика</button>
+                </div>
+
+                <!-- Graph tab -->
+                <div id="graph-tab" class="tab-content active">
+                    <div id="graph-container" class="graph-container">
+                        <svg id="graph-svg"></svg>
+                        <div id="graph-info" class="graph-info">
+                            <p>Виберіть категорії для відображення графа</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Chat tab -->
+                <div id="chat-tab" class="tab-content">
+                    <div class="chat-container">
+                        <div id="chat-messages" class="chat-messages"></div>
+                        <div class="chat-input-container">
+                            <input 
+                                type="text" 
+                                id="chat-input" 
+                                placeholder="Задайте питання про зв'язки між категоріями..."
+                                disabled
+                            >
+                            <button id="send-btn" class="btn btn-primary" disabled>Відправити</button>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
+

@@ -236,6 +236,14 @@ class ProcessingService:
                     act.is_processed = False
                     act.extracted_elements = None
                     self.db.commit()
+            except Exception as e:
+                logger.error(f"Error during OpenAI extraction for {nreg}: {e}")
+                act.is_processed = False
+                act.extracted_elements = None
+                self.db.commit()
+        else:
+            logger.warning(f"No text available for {nreg}, cannot process")
+            act.is_processed = False
         
         # Sync to Neo4j if not already synced (only if processed)
         if act.is_processed:

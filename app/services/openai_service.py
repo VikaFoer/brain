@@ -142,16 +142,24 @@ class OpenAIService:
 Примітка: Якщо акт містить багато статей (наприклад, Конституція), виділи ВСІ статті, а не тільки перші кілька."""
 
         try:
-            response = await self.client.chat.completions.create(
-                model=self.model,
-                messages=[
+            # Prepare API call parameters
+            api_params = {
+                "model": self.model,
+                "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                response_format={"type": "json_object"},
-                temperature=0.2,  # Lower temperature for more consistent extraction
-                max_tokens=4000  # Allow more tokens for response to capture all elements
-            )
+                "response_format": {"type": "json_object"},
+                "temperature": 0.2,  # Lower temperature for more consistent extraction
+                "max_tokens": 8000  # GPT-5.2 Pro supports much larger responses
+            }
+            
+            # Add reasoning effort for GPT-5.2 Pro
+            if "gpt-5.2" in self.model.lower():
+                reasoning_effort = getattr(settings, 'OPENAI_REASONING_EFFORT', 'high')
+                api_params["reasoning_effort"] = reasoning_effort
+            
+            response = await self.client.chat.completions.create(**api_params)
             
             result_text = response.choices[0].message.content
             result = json.loads(result_text)

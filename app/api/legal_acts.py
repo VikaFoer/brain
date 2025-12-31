@@ -149,28 +149,60 @@ async def check_legal_act_exists(
             }
         else:
             logger.warning(f"Act {nreg} not found on Rada website")
-            # Try alternative formats
-            alternative_nregs = [
-                nreg.replace('/', '-'),
-                nreg.replace('к', 'к/'),
-                nreg.upper(),
-                nreg.lower()
-            ]
+            # Try alternative formats - common variations
+            alternative_nregs = []
+            
+            # Try different case variations
+            if nreg != nreg.upper():
+                alternative_nregs.append(nreg.upper())
+            if nreg != nreg.lower():
+                alternative_nregs.append(nreg.lower())
+            
+            # Try replacing / with - and vice versa
+            if '/' in nreg:
+                alternative_nregs.append(nreg.replace('/', '-'))
+            if '-' in nreg:
+                alternative_nregs.append(nreg.replace('-', '/'))
+            
+            # Try different Cyrillic/latin variations
+            cyr_to_lat = {'к': 'k', 'К': 'K', 'в': 'v', 'В': 'V', 'р': 'r', 'Р': 'R'}
+            lat_to_cyr = {'k': 'к', 'K': 'К', 'v': 'в', 'V': 'В', 'r': 'р', 'R': 'Р'}
+            
+            # Convert Cyrillic to Latin
+            lat_nreg = nreg
+            for cyr, lat in cyr_to_lat.items():
+                lat_nreg = lat_nreg.replace(cyr, lat)
+            if lat_nreg != nreg:
+                alternative_nregs.append(lat_nreg)
+            
+            # Convert Latin to Cyrillic
+            cyr_nreg = nreg
+            for lat, cyr in lat_to_cyr.items():
+                cyr_nreg = cyr_nreg.replace(lat, cyr)
+            if cyr_nreg != nreg:
+                alternative_nregs.append(cyr_nreg)
+            
+            # Remove duplicates
+            alternative_nregs = list(set(alternative_nregs))
             
             for alt_nreg in alternative_nregs:
                 if alt_nreg == nreg:
                     continue
                 logger.info(f"Trying alternative format: {alt_nreg}")
-                alt_doc = await rada_api.get_document_json(alt_nreg)
-                if alt_doc:
-                    title = alt_doc.get("title", alt_nreg)
-                    return {
-                        "exists": True,
-                        "in_database": False,
-                        "is_processed": False,
-                        "title": title,
-                        "message": f"Акт знайдено на сайті data.rada.gov.ua (альтернативний формат): {title}"
-                    }
+                try:
+                    alt_doc = await rada_api.get_document_json(alt_nreg)
+                    if alt_doc:
+                        title = alt_doc.get("title", alt_nreg)
+                        return {
+                            "exists": True,
+                            "in_database": False,
+                            "is_processed": False,
+                            "title": title,
+                            "message": f"Акт знайдено на сайті data.rada.gov.ua (альтернативний формат): {title}"
+                        }
+                except Exception as e:
+                    logger.debug(f"Alternative format {alt_nreg} failed: {e}")
+                    continue
             
             return {
                 "exists": False,

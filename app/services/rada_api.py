@@ -77,7 +77,23 @@ class RadaAPIService:
                 response = await client.get(url, headers=headers, timeout=60.0)
                 
                 if response.status_code == 200:
-                    return response.json()
+                    # Check if response is actually JSON
+                    content_type = response.headers.get("content-type", "").lower()
+                    if "application/json" not in content_type and "text/json" not in content_type:
+                        logger.warning(f"Response for {nreg} is not JSON (content-type: {content_type})")
+                        # Try to parse anyway, but log the content
+                        try:
+                            text_preview = response.text[:200]
+                            logger.debug(f"Response preview: {text_preview}")
+                        except:
+                            pass
+                    
+                    try:
+                        return response.json()
+                    except Exception as json_error:
+                        logger.error(f"Failed to parse JSON for {nreg}: {json_error}")
+                        logger.error(f"Response text (first 500 chars): {response.text[:500]}")
+                        return None
                 elif response.status_code == 404:
                     logger.warning(f"Document {nreg} not found (404)")
                     return None
@@ -88,7 +104,11 @@ class RadaAPIService:
                     response2 = await client.get(url, headers=headers_no_token, timeout=60.0)
                     if response2.status_code == 200:
                         logger.info(f"Successfully retrieved {nreg} without token")
-                        return response2.json()
+                        try:
+                            return response2.json()
+                        except Exception as json_error:
+                            logger.error(f"Failed to parse JSON for {nreg} (no token): {json_error}")
+                            return None
                     return None
                 else:
                     logger.error(f"Error getting document {nreg}: {response.status_code} - {response.text[:200]}")

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.core.database import get_db
 from app.models.legal_act import LegalAct
+from app.models.category import Category
 from app.services.processing_service import ProcessingService
 from pydantic import BaseModel
 

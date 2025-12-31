@@ -90,10 +90,50 @@ class RadaAPIService:
                     content_type = response.headers.get("content-type", "").lower()
                     if "application/json" not in content_type and "text/json" not in content_type:
                         logger.warning(f"Response for {nreg} is not JSON (content-type: {content_type})")
-                        # Try to parse anyway, but log the content
+                        
+                        # If HTML is returned, try to extract basic info from HTML
+                        if "text/html" in content_type:
+                            logger.info(f"Received HTML instead of JSON for {nreg}, trying to extract info from HTML")
+                            try:
+                                from bs4 import BeautifulSoup
+                                soup = BeautifulSoup(response.text, 'html.parser')
+                                
+                                # Try to extract title from HTML
+                                title = None
+                                title_tag = soup.find('title')
+                                if title_tag:
+                                    title = title_tag.get_text().strip()
+                                    # Clean up title (remove "// Портал відкритих даних" etc)
+                                    if '//' in title:
+                                        title = title.split('//')[0].strip()
+                                
+                                # Try to find JSON data in script tags
+                                scripts = soup.find_all('script', type='application/json')
+                                for script in scripts:
+                                    try:
+                                        json_data = json.loads(script.string)
+                                        if json_data:
+                                            logger.info(f"Found JSON data in HTML script tag for {nreg}")
+                                            return json_data
+                                    except:
+                                        pass
+                                
+                                # If we found title but no JSON, return minimal structure
+                                if title:
+                                    logger.info(f"Extracted title from HTML: {title}")
+                                    return {
+                                        "title": title,
+                                        "nreg": nreg,
+                                        "source": "html_parsed"
+                                    }
+                            except ImportError:
+                                logger.warning("BeautifulSoup not available, cannot parse HTML")
+                            except Exception as html_error:
+                                logger.warning(f"Error parsing HTML: {html_error}")
+                        
+                        # Try to parse as JSON anyway
                         try:
-                            text_preview = response.text[:200]
-                            logger.debug(f"Response preview: {text_preview}")
+                            return response.json()
                         except:
                             pass
                     

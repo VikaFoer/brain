@@ -219,7 +219,9 @@ async function showActDetails(nreg) {
     modalBody.innerHTML = '<p class="loading">Завантаження...</p>';
 
     try {
-        const encodedNreg = encodeURIComponent(nreg);
+        // Encode NREG but preserve / characters for path segments
+        // Split by /, encode each part, then join back
+        const encodedNreg = nreg.split('/').map(part => encodeURIComponent(part)).join('/');
         const response = await fetch(`${API_BASE}/legal-acts/${encodedNreg}/details`);
         const data = await response.json();
 
@@ -331,7 +333,8 @@ async function processAct(nreg) {
     if (!confirm(`Обробити акт "${nreg}"?`)) return;
 
     try {
-        const encodedNreg = encodeURIComponent(nreg);
+        // Encode NREG but preserve / characters for path segments
+        const encodedNreg = nreg.split('/').map(part => encodeURIComponent(part)).join('/');
         const response = await fetch(`${API_BASE}/legal-acts/${encodedNreg}/process`, {
             method: 'POST'
         });
@@ -358,7 +361,8 @@ async function processNewAct() {
     statusDiv.textContent = 'Запуск обробки...';
 
     try {
-        const encodedNreg = encodeURIComponent(nreg);
+        // Encode NREG but preserve / characters for path segments
+        const encodedNreg = nreg.split('/').map(part => encodeURIComponent(part)).join('/');
         const response = await fetch(`${API_BASE}/legal-acts/${encodedNreg}/process`, {
             method: 'POST'
         });

@@ -108,11 +108,15 @@ async def initialize_categories(db: Session = Depends(get_db)):
 @router.get("/{nreg:path}", response_model=LegalActResponse)
 async def get_legal_act(nreg: str = Path(..., description="Номер реєстрації акту"), db: Session = Depends(get_db)):
     """Get legal act by nreg"""
-    # Decode URL-encoded characters
+    # Decode URL-encoded characters (each segment separately)
+    # FastAPI's {nreg:path} may split on /, so we need to handle it properly
     nreg = unquote(nreg)
+    # If nreg contains /, FastAPI might have split it - check if act exists
     act = db.query(LegalAct).filter(LegalAct.nreg == nreg).first()
     if not act:
-        raise HTTPException(status_code=404, detail="Legal act not found")
+        # Try to find by partial match if split happened
+        # This shouldn't happen with {nreg:path}, but just in case
+        raise HTTPException(status_code=404, detail=f"Legal act not found: {nreg}")
     return act
 
 

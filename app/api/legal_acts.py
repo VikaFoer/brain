@@ -77,11 +77,25 @@ async def process_legal_act(
 async def initialize_categories(db: Session = Depends(get_db)):
     """Initialize categories in database"""
     try:
+        # Ensure tables exist first
+        from app.core.database import Base, engine
+        Base.metadata.create_all(bind=engine)
+        
         processing_service = ProcessingService(db)
         await processing_service.initialize_categories()
+        
+        count = db.query(Category).count()
         return {
             "message": "Categories initialized successfully",
-            "count": db.query(Category).count()
+            "count": count,
+            "status": "success"
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error initializing categories: {str(e)}")
+        error_msg = str(e)
+        # Provide helpful error message
+        if "no such table" in error_msg.lower() or "relation" in error_msg.lower():
+            error_msg += ". Tables should be created automatically. Please check DATABASE_URL."
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error initializing categories: {error_msg}"
+        )

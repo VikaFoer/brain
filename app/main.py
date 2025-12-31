@@ -22,10 +22,17 @@ app = FastAPI(
 async def startup_event():
     """Create database tables if they don't exist"""
     try:
+        # Check if database is accessible
+        with engine.connect() as conn:
+            conn.execute("SELECT 1")
+        
+        # Create tables
         Base.metadata.create_all(bind=engine)
         print("✅ Database tables created/verified")
     except Exception as e:
         print(f"⚠️  Database initialization warning: {e}")
+        print("⚠️  Application will continue but database features may not work")
+        # Don't raise - allow app to start even if DB fails
 
 # CORS middleware
 app.add_middleware(

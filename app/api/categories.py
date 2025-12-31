@@ -25,8 +25,18 @@ class CategoryResponse(BaseModel):
 @router.get("/", response_model=List[CategoryResponse])
 async def get_categories(db: Session = Depends(get_db)):
     """Get all categories"""
-    categories = db.query(Category).all()
-    return categories
+    try:
+        # Ensure tables exist
+        from app.core.database import Base, engine
+        Base.metadata.create_all(bind=engine)
+        
+        categories = db.query(Category).all()
+        return categories
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database error: {str(e)}. Please ensure DATABASE_URL is set correctly."
+        )
 
 
 @router.get("/{category_id}", response_model=CategoryResponse)

@@ -16,17 +16,32 @@ router = APIRouter()
 async def get_status(db: Session = Depends(get_db)):
     """Get system status and statistics"""
     try:
-        # Check if tables exist
-        from sqlalchemy import inspect
-        inspector = inspect(engine)
-        tables_exist = "categories" in inspector.get_table_names()
+        # Check if database is accessible
+        from sqlalchemy import inspect, text
+        from app.core.database import engine
+        
+        try:
+            inspector = inspect(engine)
+            tables = inspector.get_table_names()
+            tables_exist = "categories" in tables
+        except Exception as db_error:
+            return {
+                "status": "database_error",
+                "message": f"Database connection error: {str(db_error)}",
+                "database": {
+                    "accessible": False,
+                    "error": str(db_error)
+                },
+                "recommendation": "Add PostgreSQL service in Railway or set DATABASE_URL environment variable"
+            }
         
         if not tables_exist:
             return {
                 "status": "database_not_initialized",
-                "message": "Database tables not created. Please initialize database first.",
+                "message": "Database tables not created. Tables will be created automatically on next request.",
                 "database": {
-                    "tables_exist": False
+                    "tables_exist": False,
+                    "accessible": True
                 }
             }
         

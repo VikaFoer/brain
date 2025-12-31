@@ -286,21 +286,26 @@ function switchTab(tab) {
     }
 }
 
+// Chat conversation history
+let chatHistory = [];
+
 // Send chat message
 async function sendMessage() {
     const input = document.getElementById('chat-input');
     const question = input.value.trim();
 
-    if (!question || selectedCategories.length === 0) return;
+    if (!question) return;
 
     // Add user message to chat
     addChatMessage('user', question);
+    chatHistory.push({ role: 'user', content: question });
     input.value = '';
 
     // Show loading
     const loadingId = addChatMessage('assistant', 'Обробка запиту...');
 
     try {
+        const selectedCategories = getSelectedCategories();
         const response = await fetch(`${API_BASE}/chat/`, {
             method: 'POST',
             headers: {
@@ -308,36 +313,67 @@ async function sendMessage() {
             },
             body: JSON.stringify({
                 question: question,
-                category_ids: selectedCategories,
-                context_type: 'relations'
+                category_ids: selectedCategories.length > 0 ? selectedCategories : null,
+                context_type: 'general',
+                conversation_history: chatHistory.slice(-10) // Last 10 messages for context
             })
         });
 
-        const data = await response.json();
+        if (response.ok) {
+            const data = await response.json();
+            
+            // Remove loading message
+            const loadingEl = document.getElementById(loadingId);
+            if (loadingEl) loadingEl.remove();
 
-        // Remove loading message
-        document.getElementById(loadingId).remove();
-
-        // Add assistant response
-        addChatMessage('assistant', data.answer);
+            // Add assistant response to history
+            chatHistory.push({ role: 'assistant', content: data.answer });
+            
+            // Show answer
+            addChatMessage('assistant', data.answer);
+            
+            // Show relevant acts and categories if available
+            if (data.relevant_acts && data.relevant_acts.length > 0) {
+                const actsInfo = data.relevant_acts.map(act => 
+                    `• ${act.title} (${act.nreg})`
+                ).join('\n');
+                addChatMessage('system', `Знайдені релевантні акти:\n${actsInfo}`);
+            }
+            
+            if (data.relevant_categories && data.relevant_categories.length > 0) {
+                const catsInfo = data.relevant_categories.map(cat => 
+                    `• ${cat.name} (${cat.acts_count || 0} актів)`
+                ).join('\n');
+                addChatMessage('system', `Релевантні категорії:\n${catsInfo}`);
+            }
+        } else {
+            const errorData = await response.json().catch(() => ({}));
+            const loadingEl = document.getElementById(loadingId);
+            if (loadingEl) loadingEl.remove();
+            addChatMessage('assistant', errorData.detail || 'Вибачте, сталася помилка при обробці запиту.');
+        }
     } catch (error) {
         console.error('Error sending message:', error);
-        document.getElementById(loadingId).remove();
-        addChatMessage('assistant', 'Вибачте, сталася помилка при обробці запиту.');
+        const loadingEl = document.getElementById(loadingId);
+        if (loadingEl) loadingEl.remove();
+        addChatMessage('assistant', 'Вибачте, сталася помилка при обробці запиту. Перевірте підключення до сервера.');
     }
 }
 
 // Add chat message
 function addChatMessage(role, text) {
     const container = document.getElementById('chat-messages');
-    const messageId = `msg-${Date.now()}`;
-    const time = new Date().toLocaleTimeString('uk-UA');
+    const messageId = `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const time = new Date().toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
 
     const messageDiv = document.createElement('div');
     messageDiv.id = messageId;
     messageDiv.className = `message ${role}`;
+    
+    // Format text with line breaks
+    const formattedText = text.replace(/\n/g, '<br>');
     messageDiv.innerHTML = `
-        <div>${text}</div>
+        <div>${formattedText}</div>
         <div class="message-time">${time}</div>
     `;
 

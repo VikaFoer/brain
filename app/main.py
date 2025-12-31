@@ -4,8 +4,10 @@ Main FastAPI application
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from app.api import router as api_router
 from app.core.config import settings
+import os
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -25,12 +27,23 @@ app.add_middleware(
 # Include routers
 app.include_router(api_router, prefix="/api")
 
+# Serve static files
+static_dir = os.path.join(os.path.dirname(__file__), "static")
+if os.path.exists(static_dir):
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+@app.get("/favicon.ico")
+async def favicon():
+    """Serve favicon"""
+    return {"detail": "No favicon"}
+
 @app.get("/")
 async def root():
     return {
         "message": "Legal Graph System API",
         "version": "1.0.0",
-        "docs": "/docs"
+        "docs": "/docs",
+        "status": "online"
     }
 
 @app.get("/health")

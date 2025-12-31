@@ -37,14 +37,37 @@ class ProcessingService:
         card_json = await rada_api.get_document_card(nreg)
         text = await rada_api.get_document_text(nreg)
         
+        # If document_json is None, try to get text and create minimal structure
         if not document_json:
-            logger.error(f"Failed to download {nreg}")
-            return None
+            if text:
+                logger.info(f"Using text format for {nreg} (JSON unavailable)")
+                # Create minimal JSON structure from text
+                document_json = {
+                    "nreg": nreg,
+                    "title": nreg,
+                    "text": text,
+                    "source": "text_only"
+                }
+                # Try to extract title from text
+                if text:
+                    lines = text.split('\n')
+                    for line in lines[:20]:  # Check first 20 lines
+                        line = line.strip()
+                        if line and 10 < len(line) < 300 and not line.startswith('№'):
+                            document_json["title"] = line
+                            break
+            else:
+                logger.error(f"Failed to download {nreg} (both JSON and text unavailable)")
+                return None
         
         # Extract title
         title = document_json.get("title", nreg)
         if card_json:
             title = card_json.get("title", title)
+        
+        # If we got text from document_json, use it
+        if "text" in document_json and not text:
+            text = document_json.get("text")
         
         # Extract metadata from card_json or document_json
         document_type = None
@@ -80,15 +103,12 @@ class ProcessingService:
             date_acceptance = parse_date(card_json.get("date_acceptance"))
             date_publication = parse_date(card_json.get("date_publication"))
         
-        # Fallback to document_json
-        if not document_type and document_json:
+        # Fallback to document_json (if card_json not available)
+        if not card_json and document_json:
             document_type = document_json.get("type", document_json.get("document_type"))
-        if not status and document_json:
             status = document_json.get("status", document_json.get("state"))
-        if not date_acceptance:
-            date_acceptance = parse_date(document_json.get("date_acceptance") if document_json else None)
-        if not date_publication:
-            date_publication = parse_date(document_json.get("date_publication") if document_json else None)
+            date_acceptance = parse_date(document_json.get("date_acceptance"))
+            date_publication = parse_date(document_json.get("date_publication"))
         
         # Create or update act in PostgreSQL
         if not act:

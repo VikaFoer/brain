@@ -148,24 +148,37 @@ class RadaAPIService:
                 logger.debug(f"Error trying {url}: {e}")
                 continue
         
-        # If all URL formats failed, try to get from document list
-        logger.info(f"All direct URL formats failed for {nreg}, checking if it exists in document list...")
+        # If all URL formats failed, try text format as fallback
+        logger.info(f"All JSON URL formats failed for {nreg}, trying text format as fallback...")
         try:
-            # Get a sample of documents to see the correct format
-            all_docs = await self.get_all_documents_list(limit=1000)
-            if nreg in all_docs:
-                logger.info(f"Found {nreg} in document list, but direct access failed")
-                # Document exists but direct access doesn't work
-                # Return minimal info
+            text = await self.get_document_text(nreg)
+            if text:
+                logger.info(f"Successfully retrieved text for {nreg}, creating minimal JSON structure")
+                # Extract title from text (first line or first 200 chars)
+                title = nreg
+                if text:
+                    lines = text.split('\n')
+                    for line in lines[:10]:  # Check first 10 lines
+                        line = line.strip()
+                        if line and len(line) > 10 and len(line) < 200:
+                            # Likely a title
+                            title = line
+                            break
+                    if title == nreg and len(text) > 0:
+                        # Use first 100 chars as title
+                        title = text[:100].replace('\n', ' ').strip()
+                
                 return {
                     "nreg": nreg,
-                    "exists": True,
-                    "note": "Document exists but JSON endpoint unavailable"
+                    "title": title,
+                    "text": text,
+                    "source": "text_fallback"
                 }
-        except:
-            pass
+        except Exception as e:
+            logger.debug(f"Text format also failed: {e}")
         
-        logger.warning(f"Could not retrieve JSON for {nreg} using any URL format")
+        # Last resort: check if document exists in list (but don't fetch full list for single check)
+        logger.warning(f"Could not retrieve JSON or text for {nreg} using any URL format")
         return None
     
     async def get_document_card(self, nreg: str) -> Optional[Dict[str, Any]]:

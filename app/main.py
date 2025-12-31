@@ -55,7 +55,8 @@ if os.path.exists(static_dir):
 # Serve frontend files
 frontend_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
 if os.path.exists(frontend_dir):
-    app.mount("/frontend", StaticFiles(directory=frontend_dir, html=True), name="frontend")
+    print(f"📁 Serving frontend files from: {frontend_dir}")
+    app.mount("/frontend", StaticFiles(directory=frontend_dir), name="frontend")
 
 @app.get("/favicon.ico")
 async def favicon():

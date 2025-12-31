@@ -311,20 +311,20 @@ async def auto_download_acts(
                     logger.warning(f"New documents list method failed: {e}")
                 
                 # Fallback 2: If still no documents, try to use known NREGs from database
-                # and generate some common NREG patterns to try
                 if not all_nregs:
-                    logger.info("Trying fallback: generate common NREG patterns")
-                    # Get some known NREGs from database to understand the pattern
-                    known_acts = bg_db.query(LegalAct.nreg).limit(10).all()
-                    known_nregs = [act[0] for act in known_acts]
+                    logger.info("Trying fallback: use NREGs from database")
+                    # Get ALL NREGs from database (both processed and unprocessed)
+                    all_db_acts = bg_db.query(LegalAct.nreg).all()
+                    known_nregs = [act[0] for act in all_db_acts]
                     
                     if known_nregs:
-                        logger.info(f"Found {len(known_nregs)} known NREGs in database: {known_nregs[:5]}")
-                        # Try to process some known NREGs that aren't processed yet
+                        logger.info(f"Found {len(known_nregs)} NREGs in database: {known_nregs[:5]}...")
+                        # Use all NREGs from database as fallback
                         all_nregs = known_nregs
+                        logger.info(f"Using {len(all_nregs)} NREGs from database as fallback")
                     else:
                         # Last resort: try some common NREG patterns
-                        logger.info("No known NREGs in database, trying common patterns")
+                        logger.info("No NREGs in database, trying common patterns")
                         # Generate some test NREGs based on common patterns
                         # This is a last resort - better to fix the parsing
                         common_patterns = [

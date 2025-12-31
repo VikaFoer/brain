@@ -291,17 +291,59 @@ class RadaAPIService:
                     url = f"{self.base_url}/laws/main/n"  # За 30 днів
                 
                 headers = self._get_headers(use_token=False)
-                response = await client.get(url, headers=headers, timeout=30.0)
+                response = await client.get(url, headers=headers, timeout=30.0, follow_redirects=True)
                 
                 if response.status_code == 200:
                     import re
-                    nregs = re.findall(r'/laws/show/([^"]+)', response.text)
-                    return list(set(nregs))
+                    from bs4 import BeautifulSoup
+                    from urllib.parse import unquote
+                    
+                    # Try BeautifulSoup first
+                    soup = BeautifulSoup(response.text, 'html.parser')
+                    nregs = []
+                    
+                    # Find all links to /laws/show/{nreg}
+                    for link in soup.find_all('a', href=True):
+                        href = link.get('href', '')
+                        if '/laws/show/' in href:
+                            match = re.search(r'/laws/show/([^"\s<>\.\?&#]+)', href)
+                            if match:
+                                nreg = match.group(1)
+                                nreg = nreg.replace('.json', '').replace('.txt', '').replace('.html', '')
+                                if '?' in nreg:
+                                    nreg = nreg.split('?')[0]
+                                if nreg and nreg not in nregs:
+                                    try:
+                                        decoded = unquote(nreg)
+                                        nregs.append(decoded)
+                                    except:
+                                        nregs.append(nreg)
+                    
+                    # Fallback to regex if BeautifulSoup didn't find anything
+                    if not nregs:
+                        nregs = re.findall(r'/laws/show/([^"\s<>\.\?&#]+)', response.text)
+                        # Decode and clean
+                        decoded_nregs = []
+                        for nreg in nregs:
+                            try:
+                                decoded = unquote(nreg)
+                                decoded = decoded.replace('.json', '').replace('.txt', '').replace('.html', '')
+                                if '?' in decoded:
+                                    decoded = decoded.split('?')[0]
+                                if decoded and decoded not in decoded_nregs:
+                                    decoded_nregs.append(decoded)
+                            except:
+                                if nreg not in decoded_nregs:
+                                    decoded_nregs.append(nreg)
+                        nregs = decoded_nregs
+                    
+                    logger.info(f"Found {len(nregs)} documents from new documents list")
+                    return list(set(nregs))  # Remove duplicates
                 else:
                     logger.error(f"Error getting new list: {response.status_code}")
                     return []
         except Exception as e:
-            logger.error(f"Exception getting new list: {e}")
+            logger.error(f"Exception getting new list: {e}", exc_info=True)
             return []
     
     async def get_all_documents_list(self, limit: Optional[int] = None) -> List[str]:

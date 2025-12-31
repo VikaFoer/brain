@@ -158,6 +158,22 @@ class ProcessingService:
                     act.is_processed = True
                     act.processed_at = datetime.utcnow()
                     
+                    # Generate embeddings for semantic search
+                    logger.info(f"Generating embeddings for {nreg}...")
+                    try:
+                        embeddings_result = await embeddings_service.generate_embeddings_for_act(
+                            text=text,
+                            title=title
+                        )
+                        if embeddings_result and embeddings_result.get("embeddings"):
+                            act.embeddings = embeddings_result
+                            logger.info(f"Generated {len(embeddings_result.get('embeddings', []))} embeddings for {nreg}")
+                        else:
+                            logger.warning(f"Failed to generate embeddings for {nreg}")
+                    except Exception as e:
+                        logger.error(f"Error generating embeddings for {nreg}: {e}")
+                        # Don't fail the whole process if embeddings fail
+                    
                     # Process categories
                     for cat_name in extracted.get("categories", []):
                         category = self.db.query(Category).filter(Category.name == cat_name).first()

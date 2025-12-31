@@ -171,6 +171,9 @@ function renderActs() {
                 <button class="btn btn-primary btn-small" onclick="showActDetails('${escapeHtml(act.nreg)}')">
                     <span>👁️</span> Деталі
                 </button>
+                <button class="btn btn-info btn-small" onclick="checkActOnRada('${escapeHtml(act.nreg)}')">
+                    <span>🔍</span> Перевірити на Rada
+                </button>
                 ${!act.is_processed 
                     ? `<button class="btn btn-success btn-small" onclick="processAct('${escapeHtml(act.nreg)}')">
                         <span>⚙️</span> Обробити
@@ -341,6 +344,61 @@ async function checkActExists(nreg) {
             exists: false,
             message: 'Помилка при перевірці акту'
         };
+    }
+}
+
+// Check act on Rada website (standalone function with UI)
+async function checkActOnRada(nreg) {
+    const statusDiv = document.createElement('div');
+    statusDiv.className = 'status-message';
+    statusDiv.style.cssText = 'position: fixed; top: 20px; right: 20px; padding: 20px; border-radius: 12px; z-index: 10000; max-width: 450px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); font-family: Inter, sans-serif;';
+    statusDiv.style.background = 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)';
+    statusDiv.style.color = 'white';
+    statusDiv.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <div style="font-size: 24px;">🔍</div>
+            <div>
+                <div style="font-weight: 600; font-size: 16px; margin-bottom: 4px;">Перевірка акту...</div>
+                <div style="font-size: 14px; opacity: 0.9;">Перевіряємо на сайті data.rada.gov.ua</div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(statusDiv);
+    
+    const checkResult = await checkActExists(nreg);
+    
+    if (checkResult.exists) {
+        statusDiv.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+        statusDiv.innerHTML = `
+            <div style="display: flex; align-items: flex-start; gap: 12px;">
+                <div style="font-size: 24px;">✅</div>
+                <div style="flex: 1;">
+                    <div style="font-weight: 600; font-size: 16px; margin-bottom: 8px;">Акт знайдено!</div>
+                    <div style="font-size: 14px; opacity: 0.95; margin-bottom: 4px; font-weight: 500;">${checkResult.title || nreg}</div>
+                    <div style="font-size: 12px; opacity: 0.8; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.2);">
+                        ${checkResult.in_database ? '📦 Вже є в базі даних' : '🌐 Знайдено на сайті Rada'}
+                        ${checkResult.is_processed ? ' | ✅ Оброблено' : ''}
+                    </div>
+                    <div style="font-size: 11px; opacity: 0.7; margin-top: 4px;">${checkResult.message}</div>
+                </div>
+            </div>
+        `;
+        setTimeout(() => statusDiv.remove(), 8000);
+    } else {
+        statusDiv.style.background = 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)';
+        statusDiv.innerHTML = `
+            <div style="display: flex; align-items: flex-start; gap: 12px;">
+                <div style="font-size: 24px;">❌</div>
+                <div style="flex: 1;">
+                    <div style="font-weight: 600; font-size: 16px; margin-bottom: 8px;">Акт не знайдено</div>
+                    <div style="font-size: 14px; opacity: 0.95; margin-bottom: 4px;">NREG: ${nreg}</div>
+                    <div style="font-size: 12px; opacity: 0.8; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.2);">
+                        ${checkResult.message}
+                    </div>
+                </div>
+            </div>
+        `;
+        setTimeout(() => statusDiv.remove(), 8000);
     }
 }
 
@@ -551,3 +609,4 @@ function escapeHtml(text) {
 // Make functions available globally
 window.showActDetails = showActDetails;
 window.processAct = processAct;
+window.checkActOnRada = checkActOnRada;

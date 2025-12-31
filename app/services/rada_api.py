@@ -83,8 +83,6 @@ class RadaAPIService:
                 headers = self._get_headers(use_token=True)
                 
                 logger.debug(f"Requesting document: original nreg={nreg}, encoded={encoded_nreg}, url={url}")
-                
-                logger.debug(f"Requesting document from: {url}")
                 response = await client.get(url, headers=headers, timeout=60.0)
                 
                 if response.status_code == 200:

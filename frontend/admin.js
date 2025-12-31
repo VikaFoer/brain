@@ -67,6 +67,14 @@ function setupEventListeners() {
     } else {
         console.error('sync-all-rada-btn not found!');
     }
+    
+    // Process all overnight button
+    const processAllOvernightBtn = document.getElementById('process-all-overnight-btn');
+    if (processAllOvernightBtn) {
+        processAllOvernightBtn.addEventListener('click', processAllOvernight);
+    } else {
+        console.error('process-all-overnight-btn not found!');
+    }
 
     // Close modals
     document.getElementById('close-modal').addEventListener('click', closeDetailsModal);
@@ -239,6 +247,102 @@ function renderCategories() {
             </div>
         </div>
     `).join('');
+}
+
+// Process all NPA overnight
+async function processAllOvernight() {
+    const btn = document.getElementById('process-all-overnight-btn');
+    if (!btn) {
+        console.error('process-all-overnight-btn not found!');
+        return;
+    }
+    
+    if (!confirm('🌙 Запустити нічну обробку всіх необроблених НПА?\n\nЦе може зайняти багато часу. Обробка буде виконуватися в фоновому режимі.')) {
+        return;
+    }
+    
+    const originalText = btn.innerHTML;
+    
+    btn.disabled = true;
+    btn.innerHTML = '<span>⏳</span> Запуск обробки...';
+    
+    // Show notification
+    const notification = document.createElement('div');
+    notification.id = 'overnight-notification';
+    notification.className = 'notification notification-info';
+    notification.style.cssText = 'position: fixed; top: 20px; right: 20px; z-index: 10000; padding: 16px; background: #6366f1; color: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); max-width: 400px;';
+    notification.innerHTML = `
+        <div style="display: flex; align-items: flex-start; gap: 12px;">
+            <div style="font-size: 24px;">🌙</div>
+            <div style="flex: 1;">
+                <div style="font-weight: 600; font-size: 16px; margin-bottom: 4px;">Нічна обробка запущена</div>
+                <div style="font-size: 14px; opacity: 0.9;">Обробка всіх необроблених НПА виконується в фоновому режимі. Перевірте логи на сервері для прогресу.</div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(notification);
+    
+    try {
+        const response = await fetch(`${API_BASE}/legal-acts/process-all-overnight`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+            throw new Error(errorData.detail || `HTTP ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        // Update notification to success
+        notification.className = 'notification notification-success';
+        notification.style.background = '#10b981';
+        notification.innerHTML = `
+            <div style="display: flex; align-items: flex-start; gap: 12px;">
+                <div style="font-size: 24px;">✅</div>
+                <div style="flex: 1;">
+                    <div style="font-weight: 600; font-size: 16px; margin-bottom: 4px;">Обробка запущена</div>
+                    <div style="font-size: 14px; opacity: 0.9;">${data.message}</div>
+                </div>
+            </div>
+        `;
+        
+        // Remove notification after 10 seconds
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.parentNode.removeChild(notification);
+            }
+        }, 10000);
+        
+    } catch (error) {
+        console.error('Error starting overnight processing:', error);
+        
+        // Update notification to error
+        notification.className = 'notification notification-error';
+        notification.style.background = '#ef4444';
+        notification.innerHTML = `
+            <div style="display: flex; align-items: flex-start; gap: 12px;">
+                <div style="font-size: 24px;">❌</div>
+                <div style="flex: 1;">
+                    <div style="font-weight: 600; font-size: 16px; margin-bottom: 4px;">Помилка</div>
+                    <div style="font-size: 14px; opacity: 0.9;">${error.message}</div>
+                </div>
+            </div>
+        `;
+        
+        // Remove notification after 5 seconds
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.parentNode.removeChild(notification);
+            }
+        }, 5000);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
 }
 
 // Sync all Rada acts (one-time download of all NPA from Rada API)

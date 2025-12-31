@@ -443,6 +443,92 @@ async def sync_all_rada_acts(
         }
 
 
+@router.post("/process-all-overnight")
+async def process_all_overnight(
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    """
+    Запустити нічну обробку всіх НПА
+    Обробляє всі необроблені НПА з бази даних
+    """
+    from app.core.database import SessionLocal
+    from app.services.processing_service import ProcessingService
+    from app.models.legal_act import LegalAct
+    import asyncio
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
+    async def process_all():
+        """Фонова задача для обробки всіх НПА"""
+        bg_db = SessionLocal()
+        try:
+            logger.info("🌙 Початок нічної обробки всіх НПА...")
+            
+            # Отримати всі необроблені НПА
+            unprocessed_acts = bg_db.query(LegalAct).filter(LegalAct.is_processed == False).all()
+            nregs_to_process = [act.nreg for act in unprocessed_acts]
+            
+            logger.info(f"📊 Знайдено {len(nregs_to_process)} НПА для обробки")
+            
+            if not nregs_to_process:
+                logger.info("✅ Всі НПА вже оброблені!")
+                return
+            
+            # Обробка
+            processing_service = ProcessingService(bg_db)
+            processed = 0
+            failed = 0
+            already_processed = 0
+            
+            for nreg in nregs_to_process:
+                try:
+                    # Перевірка чи вже оброблено (на випадок паралельної обробки)
+                    act = bg_db.query(LegalAct).filter(LegalAct.nreg == nreg).first()
+                    if act and act.is_processed:
+                        already_processed += 1
+                        logger.info(f"⏭️  Акт {nreg} вже оброблено, пропускаємо")
+                        continue
+                    
+                    # Обробка
+                    logger.info(f"⚙️  Обробка акту {nreg} ({processed + 1}/{len(nregs_to_process)})...")
+                    result = await processing_service.process_legal_act(nreg)
+                    
+                    if result and result.is_processed:
+                        bg_db.commit()
+                        processed += 1
+                        logger.info(f"✅ Акт {nreg} успішно оброблено")
+                    else:
+                        failed += 1
+                        logger.warning(f"❌ Не вдалося обробити акт {nreg}")
+                    
+                except Exception as e:
+                    failed += 1
+                    logger.error(f"❌ Помилка обробки акту {nreg}: {e}", exc_info=True)
+                    bg_db.rollback()
+            
+            logger.info(f"📊 Обробка завершена: {processed} оброблено, {already_processed} пропущено, {failed} помилок")
+        
+        except Exception as e:
+            logger.error(f"❌ Критична помилка в нічній обробці: {e}", exc_info=True)
+        finally:
+            bg_db.close()
+    
+    if background_tasks:
+        background_tasks.add_task(lambda: asyncio.run(process_all()))
+        return {
+            "message": "Нічна обробка всіх НПА запущена в фоновому режимі",
+            "status": "queued"
+        }
+    else:
+        await process_all()
+        return {
+            "message": "Нічна обробка всіх НПА завершена",
+            "status": "completed"
+        }
+
+
 @router.post("/auto-download")
 async def auto_download_acts(
     count: int = 10,

@@ -50,3 +50,9 @@ async def root():
 async def health_check():
     return {"status": "healthy"}
 
+@app.get("/status")
+async def status():
+    """Redirect to API status endpoint"""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/api/status")
+

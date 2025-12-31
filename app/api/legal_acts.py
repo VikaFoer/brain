@@ -73,22 +73,14 @@ async def process_legal_act(
 
 
 @router.post("/initialize-categories")
-async def initialize_categories(
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db)
-):
+async def initialize_categories(db: Session = Depends(get_db)):
     """Initialize categories in database"""
-    from app.core.database import SessionLocal
-    import asyncio
-    
-    async def init():
-        bg_db = SessionLocal()
-        try:
-            bg_service = ProcessingService(bg_db)
-            await bg_service.initialize_categories()
-        finally:
-            bg_db.close()
-    
-    background_tasks.add_task(lambda: asyncio.run(init()))
-    
-    return {"message": "Categories initialization started"}
+    try:
+        processing_service = ProcessingService(db)
+        await processing_service.initialize_categories()
+        return {
+            "message": "Categories initialized successfully",
+            "count": db.query(Category).count()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error initializing categories: {str(e)}")

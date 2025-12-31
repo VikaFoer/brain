@@ -1,5 +1,8 @@
 // API base URL
-const API_BASE = 'http://localhost:8000/api';
+// Автоматично визначає URL: якщо на Railway - використовує поточний домен, інакше localhost
+const API_BASE = window.location.hostname.includes('railway') 
+    ? `${window.location.protocol}//${window.location.host}/api`
+    : 'http://localhost:8000/api';
 
 // State
 let categories = [];

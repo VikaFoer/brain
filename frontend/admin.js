@@ -225,6 +225,179 @@ function renderCategories() {
     `).join('');
 }
 
+// Load Rada acts list (with pagination)
+async function loadRadaActsList(reset = true) {
+    if (radaPagination.loading) return;
+    
+    const container = document.getElementById('rada-list');
+    const statsContainer = document.getElementById('rada-stats');
+    
+    if (reset) {
+        radaPagination.skip = 0;
+        radaActsList = [];
+        container.innerHTML = '<p class="loading">Завантаження списку з Rada API...</p>';
+        statsContainer.innerHTML = '';
+    } else {
+        // Show loading indicator at bottom
+        const loadingIndicator = document.createElement('div');
+        loadingIndicator.id = 'rada-loading-indicator';
+        loadingIndicator.className = 'loading';
+        loadingIndicator.textContent = 'Завантаження...';
+        container.appendChild(loadingIndicator);
+    }
+    
+    radaPagination.loading = true;
+    
+    try {
+        const response = await fetch(`${API_BASE}/legal-acts/rada-list?skip=${radaPagination.skip}&limit=${radaPagination.limit}`);
+        const data = await response.json();
+        
+        // Remove loading indicator
+        const loadingIndicator = document.getElementById('rada-loading-indicator');
+        if (loadingIndicator) loadingIndicator.remove();
+        
+        // Append new acts to list
+        if (reset) {
+            radaActsList = data.acts || [];
+        } else {
+            radaActsList = [...radaActsList, ...(data.acts || [])];
+        }
+        
+        // Update pagination state
+        radaPagination.skip = data.skip || radaPagination.skip;
+        radaPagination.hasMore = data.has_more || false;
+        radaPagination.total = data.total || 0;
+        
+        // Update stats (only on first load)
+        if (reset) {
+            statsContainer.innerHTML = `
+                <div class="rada-stat-item">
+                    <span class="rada-stat-label">Всього НПА:</span>
+                    <span class="rada-stat-value">${data.total || 0}</span>
+                </div>
+                <div class="rada-stat-item">
+                    <span class="rada-stat-label">Завантажено:</span>
+                    <span class="rada-stat-value">${data.loaded || 0}</span>
+                </div>
+                <div class="rada-stat-item">
+                    <span class="rada-stat-label">Оброблено:</span>
+                    <span class="rada-stat-value">${data.processed || 0}</span>
+                </div>
+                <div class="rada-stat-item">
+                    <span class="rada-stat-label">Не завантажено:</span>
+                    <span class="rada-stat-value">${data.not_loaded || 0}</span>
+                </div>
+            `;
+        }
+        
+        renderRadaActsList();
+    } catch (error) {
+        console.error('Error loading Rada acts list:', error);
+        const loadingIndicator = document.getElementById('rada-loading-indicator');
+        if (loadingIndicator) loadingIndicator.remove();
+        
+        if (reset) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-state-icon">❌</div>
+                    <p>Помилка завантаження списку з Rada API</p>
+                    <p class="error-detail">${error.message}</p>
+                </div>
+            `;
+        }
+    } finally {
+        radaPagination.loading = false;
+    }
+}
+
+// Render Rada acts list
+function renderRadaActsList() {
+    const container = document.getElementById('rada-list');
+    
+    if (radaActsList.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-state-icon">📭</div>
+                <p>НПА не знайдено</p>
+            </div>
+        `;
+        return;
+    }
+    
+    // Create or update container
+    let listContainer = container.querySelector('.rada-list-container');
+    if (!listContainer) {
+        listContainer = document.createElement('div');
+        listContainer.className = 'rada-list-container';
+        container.innerHTML = '';
+        container.appendChild(listContainer);
+    }
+    
+    // Render all acts
+    listContainer.innerHTML = radaActsList.map(act => {
+        const statusClass = act.status === 'processed' ? 'status-processed' 
+            : act.status === 'loaded' ? 'status-loaded' 
+            : 'status-not-loaded';
+        const statusIcon = act.status === 'processed' ? '✅' 
+            : act.status === 'loaded' ? '📥' 
+            : '⭕';
+        const statusText = act.status === 'processed' ? 'Оброблено' 
+            : act.status === 'loaded' ? 'Завантажено' 
+            : 'Не завантажено';
+        
+        return `
+            <div class="rada-act-item ${statusClass}">
+                <div class="rada-act-nreg">${escapeHtml(act.nreg)}</div>
+                <div class="rada-act-status">
+                    <span class="status-icon">${statusIcon}</span>
+                    <span class="status-text">${statusText}</span>
+                </div>
+                ${act.status === 'not_loaded' ? `
+                    <button class="btn btn-sm btn-primary load-act-btn" data-nreg="${escapeHtml(act.nreg)}">
+                        Завантажити
+                    </button>
+                ` : ''}
+            </div>
+        `;
+    }).join('');
+    
+    // Add event listeners for load buttons
+    listContainer.querySelectorAll('.load-act-btn').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            const nreg = e.target.dataset.nreg;
+            await processNewAct(nreg);
+        });
+    });
+    
+    // Add scroll listener for auto-loading
+    setupRadaScrollListener(container);
+}
+
+// Setup scroll listener for auto-loading more items
+function setupRadaScrollListener(container) {
+    // Remove existing listener if any
+    container.removeEventListener('scroll', handleRadaScroll);
+    
+    // Add new scroll listener
+    container.addEventListener('scroll', handleRadaScroll);
+}
+
+// Handle scroll event for auto-loading
+function handleRadaScroll(e) {
+    const container = e.target;
+    const scrollTop = container.scrollTop;
+    const scrollHeight = container.scrollHeight;
+    const clientHeight = container.clientHeight;
+    
+    // Load more when user scrolls to 80% of the content
+    if (scrollTop + clientHeight >= scrollHeight * 0.8) {
+        if (radaPagination.hasMore && !radaPagination.loading) {
+            radaPagination.skip += radaPagination.limit;
+            loadRadaActsList(false); // Don't reset, append
+        }
+    }
+}
+
 // Show act details
 async function showActDetails(nreg) {
     const modal = document.getElementById('details-modal');

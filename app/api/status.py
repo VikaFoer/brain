@@ -16,6 +16,20 @@ router = APIRouter()
 async def get_status(db: Session = Depends(get_db)):
     """Get system status and statistics"""
     try:
+        # Check if tables exist
+        from sqlalchemy import inspect
+        inspector = inspect(engine)
+        tables_exist = "categories" in inspector.get_table_names()
+        
+        if not tables_exist:
+            return {
+                "status": "database_not_initialized",
+                "message": "Database tables not created. Please initialize database first.",
+                "database": {
+                    "tables_exist": False
+                }
+            }
+        
         categories_count = db.query(Category).count()
         acts_count = db.query(LegalAct).count()
         

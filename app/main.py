@@ -7,6 +7,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from app.api import router as api_router
 from app.core.config import settings
+from app.core.database import Base, engine
+from app.models import Category, LegalAct, Subset, ActCategory, ActRelation
 import os
 
 app = FastAPI(
@@ -14,6 +16,16 @@ app = FastAPI(
     description="Система аналізу нормативно-правових актів України",
     version="1.0.0"
 )
+
+# Create database tables on startup
+@app.on_event("startup")
+async def startup_event():
+    """Create database tables if they don't exist"""
+    try:
+        Base.metadata.create_all(bind=engine)
+        print("✅ Database tables created/verified")
+    except Exception as e:
+        print(f"⚠️  Database initialization warning: {e}")
 
 # CORS middleware
 app.add_middleware(

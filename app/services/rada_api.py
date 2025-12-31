@@ -307,25 +307,26 @@ class RadaAPIService:
     async def get_all_documents_list(self, limit: Optional[int] = None) -> List[str]:
         """
         Get list of all document nregs from Rada API
-        Uses pagination to get all documents from /laws/main/r
+        Tries multiple endpoints and methods to get the document list
         """
         all_nregs = []
-        page = 1
-        max_pages = 100  # Safety limit to avoid infinite loops
+        
+        # Try different endpoints
+        endpoints_to_try = [
+            "/laws/main/r",  # Main listing page
+            "/laws/main",    # Alternative main page
+            "/laws",         # Laws root
+        ]
         
         try:
-            while page <= max_pages:
+            for endpoint in endpoints_to_try:
+                logger.info(f"Trying endpoint: {endpoint}")
                 await self._rate_limit()
                 
                 async with httpx.AsyncClient() as client:
-                    # Main page with all documents
-                    if page == 1:
-                        url = f"{self.base_url}/laws/main/r"
-                    else:
-                        url = f"{self.base_url}/laws/main/r?page={page}"
-                    
+                    url = f"{self.base_url}{endpoint}"
                     headers = self._get_headers(use_token=False)
-                    response = await client.get(url, headers=headers, timeout=60.0)
+                    response = await client.get(url, headers=headers, timeout=60.0, follow_redirects=True)
                     
                     if response.status_code == 200:
                         import re
@@ -336,29 +337,40 @@ class RadaAPIService:
                         soup = BeautifulSoup(response.text, 'html.parser')
                         
                         # Find all links to /laws/show/{nreg}
-                        # Try multiple patterns
                         page_nregs = []
                         
                         # Method 1: Find all <a> tags with href containing /laws/show/
                         for link in soup.find_all('a', href=True):
                             href = link.get('href', '')
-                            if '/laws/show/' in href:
+                            # Try both absolute and relative URLs
+                            if '/laws/show/' in href or href.startswith('/laws/show/'):
                                 # Extract NREG from href
-                                match = re.search(r'/laws/show/([^"\s<>\.\?]+)', href)
+                                match = re.search(r'/laws/show/([^"\s<>\.\?&#]+)', href)
                                 if match:
                                     nreg = match.group(1)
                                     # Remove .json, .txt, .html extensions if present
                                     nreg = nreg.replace('.json', '').replace('.txt', '').replace('.html', '')
+                                    # Remove query parameters
+                                    if '?' in nreg:
+                                        nreg = nreg.split('?')[0]
                                     if nreg and nreg not in page_nregs:
                                         page_nregs.append(nreg)
                         
-                        # Method 2: Regex fallback if BeautifulSoup didn't find anything
+                        # Method 2: Also check for data attributes or other patterns
+                        # Some sites use data-nreg or similar attributes
+                        for element in soup.find_all(attrs={'data-nreg': True}):
+                            nreg = element.get('data-nreg')
+                            if nreg and nreg not in page_nregs:
+                                page_nregs.append(nreg)
+                        
+                        # Method 3: Regex fallback if BeautifulSoup didn't find anything
                         if not page_nregs:
                             # Try more flexible regex patterns
                             patterns = [
-                                r'/laws/show/([^"\s<>\.\?]+)',  # Original pattern
+                                r'/laws/show/([^"\s<>\.\?&#]+)',  # Original pattern
                                 r'/laws/show/([^"\s<>]+)',  # More permissive
                                 r'href=["\']/laws/show/([^"\']+)["\']',  # With quotes
+                                r'href=["\']https?://[^"\']*?/laws/show/([^"\']+)["\']',  # Full URL
                             ]
                             
                             for pattern in patterns:
@@ -366,74 +378,134 @@ class RadaAPIService:
                                 if matches:
                                     for match in matches:
                                         nreg = match.replace('.json', '').replace('.txt', '').replace('.html', '')
+                                        if '?' in nreg:
+                                            nreg = nreg.split('?')[0]
                                         if nreg and nreg not in page_nregs:
                                             page_nregs.append(nreg)
+                                    if page_nregs:
+                                        break
+                        
+                        if page_nregs:
+                            logger.info(f"Found {len(page_nregs)} documents on {endpoint}")
+                            all_nregs.extend(page_nregs)
+                            break  # Success, no need to try other endpoints
+                        else:
+                            # Log more details for debugging
+                            logger.warning(f"No documents found on {endpoint}")
+                            # Count total links found
+                            all_links = soup.find_all('a', href=True)
+                            logger.debug(f"Total <a> tags found: {len(all_links)}")
+                            # Log sample hrefs
+                            sample_hrefs = [link.get('href', '')[:100] for link in all_links[:10]]
+                            logger.debug(f"Sample hrefs: {sample_hrefs}")
+                            
+                            # If this is the first endpoint and we got HTML, try pagination
+                            if endpoint == "/laws/main/r" and len(response.text) > 1000:
+                                # Try pagination
+                                logger.info("Trying pagination on /laws/main/r")
+                                await self._try_pagination(client, headers, all_nregs, limit)
+                                if all_nregs:
                                     break
-                        
-                        if not page_nregs:
-                            # Log response preview for debugging
-                            preview = response.text[:500] if len(response.text) > 500 else response.text
-                            logger.warning(f"No documents found on page {page}. Response preview: {preview[:200]}...")
-                            logger.info(f"No more documents on page {page}")
-                            break
-                        
-                        # Decode URL-encoded nregs and add to list
-                        decoded_nregs = []
-                        for nreg in page_nregs:
-                            try:
-                                decoded = unquote(nreg)
-                                # Check if already in all_nregs (preserve order)
-                                if decoded not in all_nregs:
-                                    decoded_nregs.append(decoded)
-                            except Exception as e:
-                                # If decoding fails, use as is
-                                if nreg not in all_nregs:
-                                    decoded_nregs.append(nreg)
-                                logger.debug(f"Could not decode nreg {nreg}: {e}")
-                        
-                        all_nregs.extend(decoded_nregs)
-                        
-                        logger.info(f"Page {page}: found {len(decoded_nregs)} new documents (total: {len(all_nregs)})")
-                        
-                        # Check if we've reached the limit
-                        if limit and len(all_nregs) >= limit:
-                            all_nregs = all_nregs[:limit]
-                            logger.info(f"Reached limit of {limit} documents")
-                            break
-                        
-                        # If we got fewer results than expected, might be last page
-                        if len(decoded_nregs) < 20:  # Assuming ~20-50 per page
-                            logger.info(f"Few results on page {page}, assuming last page")
-                            break
-                        
-                        page += 1
-                    elif response.status_code == 404:
-                        # No more pages
-                        logger.info(f"No more pages (404 on page {page})")
-                        break
                     else:
-                        logger.warning(f"Error getting page {page}: {response.status_code}")
-                        break
-                
-                # Safety check to avoid infinite loops
-                if page > max_pages:
-                    logger.warning(f"Reached max pages limit ({max_pages})")
-                    break
+                        logger.warning(f"Endpoint {endpoint} returned status {response.status_code}")
+            
+            if not all_nregs:
+                logger.error("No documents found on any endpoint. This might indicate:")
+                logger.error("1. The website structure has changed")
+                logger.error("2. Rate limiting is blocking requests")
+                logger.error("3. Authentication is required")
+                return []
             
             # Remove duplicates but preserve order (as they appear on the site)
             seen = set()
             unique_nregs = []
             for nreg in all_nregs:
-                if nreg not in seen:
-                    seen.add(nreg)
-                    unique_nregs.append(nreg)
+                try:
+                    from urllib.parse import unquote
+                    decoded = unquote(nreg)
+                    if decoded not in seen:
+                        seen.add(decoded)
+                        unique_nregs.append(decoded)
+                except Exception:
+                    if nreg not in seen:
+                        seen.add(nreg)
+                        unique_nregs.append(nreg)
+            
+            # Apply limit if specified
+            if limit and len(unique_nregs) > limit:
+                unique_nregs = unique_nregs[:limit]
+                logger.info(f"Limited to {limit} documents")
             
             logger.info(f"Total unique documents found: {len(unique_nregs)}")
             return unique_nregs
             
         except Exception as e:
             logger.error(f"Exception getting all documents list: {e}", exc_info=True)
-            return all_nregs  # Return what we have so far
+            return []
+    
+    async def _try_pagination(self, client: httpx.AsyncClient, headers: Dict[str, str], all_nregs: List[str], limit: Optional[int] = None):
+        """Try to get documents using pagination"""
+        page = 1
+        max_pages = 10  # Limit pagination attempts
+        
+        while page <= max_pages:
+            await self._rate_limit()
+            
+            url = f"{self.base_url}/laws/main/r"
+            if page > 1:
+                url = f"{self.base_url}/laws/main/r?page={page}"
+            
+            try:
+                response = await client.get(url, headers=headers, timeout=60.0, follow_redirects=True)
+                
+                if response.status_code == 200:
+                    from bs4 import BeautifulSoup
+                    import re
+                    from urllib.parse import unquote
+                    
+                    soup = BeautifulSoup(response.text, 'html.parser')
+                    page_nregs = []
+                    
+                    for link in soup.find_all('a', href=True):
+                        href = link.get('href', '')
+                        if '/laws/show/' in href:
+                            match = re.search(r'/laws/show/([^"\s<>\.\?&#]+)', href)
+                            if match:
+                                nreg = match.group(1).replace('.json', '').replace('.txt', '').replace('.html', '')
+                                if '?' in nreg:
+                                    nreg = nreg.split('?')[0]
+                                if nreg and nreg not in all_nregs and nreg not in page_nregs:
+                                    page_nregs.append(nreg)
+                    
+                    if not page_nregs:
+                        logger.info(f"No more documents on page {page}")
+                        break
+                    
+                    # Decode and add
+                    for nreg in page_nregs:
+                        try:
+                            decoded = unquote(nreg)
+                            if decoded not in all_nregs:
+                                all_nregs.append(decoded)
+                        except Exception:
+                            if nreg not in all_nregs:
+                                all_nregs.append(nreg)
+                    
+                    logger.info(f"Page {page}: found {len(page_nregs)} documents (total: {len(all_nregs)})")
+                    
+                    if limit and len(all_nregs) >= limit:
+                        break
+                    
+                    page += 1
+                elif response.status_code == 404:
+                    logger.info(f"No more pages (404 on page {page})")
+                    break
+                else:
+                    logger.warning(f"Error on page {page}: {response.status_code}")
+                    break
+            except Exception as e:
+                logger.error(f"Error fetching page {page}: {e}")
+                break
 
 
 # Singleton instance

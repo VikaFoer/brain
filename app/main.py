@@ -81,3 +81,19 @@ async def status():
     from fastapi.responses import RedirectResponse
     return RedirectResponse(url="/api/status")
 
+@app.get("/admin")
+async def admin_panel():
+    """Admin panel interface"""
+    admin_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "admin.html")
+    if os.path.exists(admin_file):
+        return FileResponse(admin_file)
+    raise HTTPException(status_code=404, detail="Admin panel not found")
+
+@app.get("/app")
+async def main_app():
+    """Main application interface"""
+    app_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "index.html")
+    if os.path.exists(app_file):
+        return FileResponse(app_file)
+    raise HTTPException(status_code=404, detail="Application not found")
+

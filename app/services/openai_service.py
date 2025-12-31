@@ -18,7 +18,8 @@ class OpenAIService:
             self.client = None
         else:
             self.client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-        self.model = settings.OPENAI_MODEL
+        self.model = settings.OPENAI_MODEL  # For extraction
+        self.chat_model = getattr(settings, 'OPENAI_CHAT_MODEL', settings.OPENAI_MODEL)  # For chat
     
     async def extract_set_elements(
         self, 

@@ -133,12 +133,33 @@ function renderActs() {
         return;
     }
 
-            container.innerHTML = filteredActs.map(act => `
+            container.innerHTML = filteredActs.map(act => {
+                const formatDate = (dateStr) => {
+                    if (!dateStr) return 'Не вказано';
+                    try {
+                        const date = new Date(dateStr);
+                        return date.toLocaleDateString('uk-UA', { 
+                            year: 'numeric', 
+                            month: 'long', 
+                            day: 'numeric' 
+                        });
+                    } catch {
+                        return dateStr;
+                    }
+                };
+
+                return `
         <div class="act-card ${act.is_processed ? 'processed' : 'not-processed'}">
             <div class="act-header">
                 <div style="flex: 1;">
                     <div class="act-title">${escapeHtml(act.title)}</div>
-                    <div class="act-nreg">${escapeHtml(act.nreg)}</div>
+                    <div class="act-nreg">📋 ${escapeHtml(act.nreg)}</div>
+                    <div class="act-metadata">
+                        ${act.document_type ? `<span class="meta-item">📄 ${escapeHtml(act.document_type)}</span>` : ''}
+                        ${act.status ? `<span class="meta-item status-${act.status.toLowerCase().replace(/\s+/g, '-')}">${getStatusIcon(act.status)} ${escapeHtml(act.status)}</span>` : ''}
+                        ${act.date_acceptance ? `<span class="meta-item">📅 Прийнято: ${formatDate(act.date_acceptance)}</span>` : ''}
+                        ${act.date_publication ? `<span class="meta-item">📰 Опубліковано: ${formatDate(act.date_publication)}</span>` : ''}
+                    </div>
                 </div>
                 <div class="act-badges">
                     ${act.is_processed 
@@ -157,7 +178,8 @@ function renderActs() {
                     : ''}
             </div>
         </div>
-    `).join('');
+    `;
+            }).join('');
 }
 
 // Render categories
@@ -382,6 +404,15 @@ function switchTab(tab) {
 
     document.querySelector(`[data-tab="${tab}"]`).classList.add('active');
     document.getElementById(`${tab}-tab`).classList.add('active');
+}
+
+// Get status icon
+function getStatusIcon(status) {
+    const statusLower = status.toLowerCase();
+    if (statusLower.includes('діє') || statusLower.includes('чинний')) return '✅';
+    if (statusLower.includes('втрат') || statusLower.includes('недійсн')) return '❌';
+    if (statusLower.includes('змін')) return '🔄';
+    return '📋';
 }
 
 // Escape HTML to prevent XSS

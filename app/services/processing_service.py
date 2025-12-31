@@ -46,6 +46,50 @@ class ProcessingService:
         if card_json:
             title = card_json.get("title", title)
         
+        # Extract metadata from card_json or document_json
+        document_type = None
+        status = None
+        date_acceptance = None
+        date_publication = None
+        
+        def parse_date(date_str):
+            """Parse date string to datetime object"""
+            if not date_str:
+                return None
+            try:
+                from dateutil import parser
+                return parser.parse(date_str)
+            except:
+                # Fallback to simple parsing
+                try:
+                    from datetime import datetime
+                    # Try common formats
+                    for fmt in ["%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%d.%m.%Y", "%d/%m/%Y"]:
+                        try:
+                            return datetime.strptime(date_str, fmt)
+                        except:
+                            continue
+                except:
+                    pass
+            return None
+        
+        # Try to extract from card_json first (more structured)
+        if card_json:
+            document_type = card_json.get("type", card_json.get("document_type"))
+            status = card_json.get("status", card_json.get("state"))
+            date_acceptance = parse_date(card_json.get("date_acceptance"))
+            date_publication = parse_date(card_json.get("date_publication"))
+        
+        # Fallback to document_json
+        if not document_type and document_json:
+            document_type = document_json.get("type", document_json.get("document_type"))
+        if not status and document_json:
+            status = document_json.get("status", document_json.get("state"))
+        if not date_acceptance:
+            date_acceptance = parse_date(document_json.get("date_acceptance") if document_json else None)
+        if not date_publication:
+            date_publication = parse_date(document_json.get("date_publication") if document_json else None)
+        
         # Create or update act in PostgreSQL
         if not act:
             act = LegalAct(
@@ -53,7 +97,11 @@ class ProcessingService:
                 title=title,
                 text=text,
                 text_json=document_json,
-                card_json=card_json
+                card_json=card_json,
+                document_type=document_type,
+                status=status,
+                date_acceptance=date_acceptance,
+                date_publication=date_publication
             )
             self.db.add(act)
         else:
@@ -61,6 +109,14 @@ class ProcessingService:
             act.text = text
             act.text_json = document_json
             act.card_json = card_json
+            if document_type:
+                act.document_type = document_type
+            if status:
+                act.status = status
+            if date_acceptance:
+                act.date_acceptance = date_acceptance
+            if date_publication:
+                act.date_publication = date_publication
         
         self.db.commit()
         self.db.refresh(act)

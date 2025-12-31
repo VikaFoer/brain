@@ -19,6 +19,10 @@ class LegalActResponse(BaseModel):
     nreg: str
     title: str
     is_processed: bool
+    document_type: Optional[str] = None
+    status: Optional[str] = None
+    date_acceptance: Optional[str] = None
+    date_publication: Optional[str] = None
     
     class Config:
         from_attributes = True
@@ -55,8 +59,22 @@ async def get_legal_acts(
     if processed_only:
         query = query.filter(LegalAct.is_processed == True)
     
-    acts = query.offset(skip).limit(limit).all()
-    return acts
+    acts = query.order_by(LegalAct.created_at.desc()).offset(skip).limit(limit).all()
+    
+    # Convert to response format with proper date formatting
+    result = []
+    for act in acts:
+        result.append(LegalActResponse(
+            id=act.id,
+            nreg=act.nreg,
+            title=act.title,
+            is_processed=act.is_processed,
+            document_type=act.document_type,
+            status=act.status,
+            date_acceptance=act.date_acceptance.isoformat() if act.date_acceptance else None,
+            date_publication=act.date_publication.isoformat() if act.date_publication else None
+        ))
+    return result
 
 
 @router.post("/initialize-categories")

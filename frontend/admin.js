@@ -38,6 +38,9 @@ function setupEventListeners() {
         document.getElementById('process-modal').classList.add('active');
     });
 
+    // Auto-download button
+    document.getElementById('auto-download-btn').addEventListener('click', startAutoDownload);
+
     // Close modals
     document.getElementById('close-modal').addEventListener('click', closeDetailsModal);
     document.getElementById('close-process-modal').addEventListener('click', closeProcessModal);

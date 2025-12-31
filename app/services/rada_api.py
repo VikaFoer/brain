@@ -381,8 +381,14 @@ class RadaAPIService:
                     logger.warning(f"Reached max pages limit ({max_pages})")
                     break
             
-            # Remove duplicates and return
-            unique_nregs = list(set(all_nregs))
+            # Remove duplicates but preserve order (as they appear on the site)
+            seen = set()
+            unique_nregs = []
+            for nreg in all_nregs:
+                if nreg not in seen:
+                    seen.add(nreg)
+                    unique_nregs.append(nreg)
+            
             logger.info(f"Total unique documents found: {len(unique_nregs)}")
             return unique_nregs
             

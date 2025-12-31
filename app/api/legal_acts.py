@@ -262,6 +262,107 @@ async def get_legal_act_details(
     )
 
 
+@router.post("/auto-download")
+async def auto_download_acts(
+    count: int = 10,
+    background_tasks: BackgroundTasks = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Автоматичне завантаження та обробка N документів з Rada API
+    Документи завантажуються в порядку, в якому вони зберігаються на сайті Rada
+    """
+    from app.services.rada_api import rada_api
+    from app.services.processing_service import ProcessingService
+    from app.core.database import SessionLocal
+    import asyncio
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
+    # Перевірка OpenAI
+    from app.core.config import settings
+    if not settings.OPENAI_API_KEY:
+        raise HTTPException(
+            status_code=400,
+            detail="OpenAI API key is not configured. Please set OPENAI_API_KEY environment variable."
+        )
+    
+    async def download_and_process():
+        """Background task для завантаження та обробки"""
+        bg_db = SessionLocal()
+        try:
+            logger.info(f"Starting auto-download of {count} documents")
+            
+            # Отримати список документів в порядку з сайту
+            all_nregs = await rada_api.get_all_documents_list(limit=None)
+            
+            if not all_nregs:
+                logger.error("No documents found from Rada API")
+                return
+            
+            # Фільтрувати вже оброблені (зберігаючи порядок)
+            processed_nregs = {act.nreg for act in bg_db.query(LegalAct.nreg).filter(LegalAct.is_processed == True).all()}
+            nregs_to_process = [nreg for nreg in all_nregs if nreg not in processed_nregs]
+            
+            # Взяти перші N документів в порядку з сайту
+            nregs_to_download = nregs_to_process[:count]
+            
+            if not nregs_to_download:
+                logger.info("All documents already processed")
+                return
+            
+            logger.info(f"Downloading {len(nregs_to_download)} documents in order from Rada API")
+            
+            # Обробити кожен документ послідовно (щоб зберегти порядок)
+            processing_service = ProcessingService(bg_db)
+            processed = 0
+            failed = 0
+            
+            for nreg in nregs_to_download:
+                try:
+                    result = await processing_service.process_legal_act(nreg)
+                    if result and result.is_processed:
+                        processed += 1
+                        logger.info(f"Successfully processed {nreg} ({processed}/{len(nregs_to_download)})")
+                    else:
+                        failed += 1
+                        logger.warning(f"Failed to process {nreg}")
+                except Exception as e:
+                    failed += 1
+                    logger.error(f"Error processing {nreg}: {e}")
+                
+                # Коміт після кожного документа
+                try:
+                    bg_db.commit()
+                except Exception as e:
+                    logger.error(f"Error committing {nreg}: {e}")
+                    bg_db.rollback()
+            
+            logger.info(f"Auto-download complete: {processed} processed, {failed} failed")
+            
+        except Exception as e:
+            logger.error(f"Error in auto-download: {e}", exc_info=True)
+        finally:
+            bg_db.close()
+    
+    if background_tasks:
+        background_tasks.add_task(lambda: asyncio.run(download_and_process()))
+        return {
+            "message": f"Auto-download started for {count} documents",
+            "status": "queued",
+            "count": count
+        }
+    else:
+        # Синхронний виклик для тестування
+        asyncio.run(download_and_process())
+        return {
+            "message": f"Auto-download completed for {count} documents",
+            "status": "completed",
+            "count": count
+        }
+
+
 @router.post("/{nreg:path}/process")
 async def process_legal_act(
     nreg: str = Path(..., description="Номер реєстрації акту"),

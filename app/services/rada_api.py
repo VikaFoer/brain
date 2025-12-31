@@ -58,7 +58,10 @@ class RadaAPIService:
             return None
     
     async def get_document_json(self, nreg: str) -> Optional[Dict[str, Any]]:
-        """Get full document in JSON format"""
+        """
+        Get full document in JSON format
+        Tries multiple URL formats and endpoints to find the correct one
+        """
         await self._rate_limit()
         
         # Try to get token if not set
@@ -66,114 +69,121 @@ class RadaAPIService:
             logger.info("RADA_API_TOKEN not set, trying to get token automatically...")
             self.token = await self.get_token()
         
-        try:
-            async with httpx.AsyncClient() as client:
-                # URL encode the nreg properly
-                # According to Rada API docs, / should be encoded as %2F
-                # But we need to preserve the structure, so encode each part separately
-                from urllib.parse import quote
-                # Split by /, encode each part, then join with /
-                if '/' in nreg:
-                    parts = nreg.split('/')
-                    encoded_parts = [quote(part, safe='') for part in parts]
-                    encoded_nreg = '/'.join(encoded_parts)
-                else:
-                    encoded_nreg = quote(nreg, safe='')
-                
-                url = f"{self.base_url}/laws/show/{encoded_nreg}.json"
-                headers = self._get_headers(use_token=True)
-                
-                logger.debug(f"Requesting document: original nreg={nreg}, encoded={encoded_nreg}, url={url}")
-                response = await client.get(url, headers=headers, timeout=60.0)
-                
-                if response.status_code == 200:
-                    # Check if response is actually JSON
-                    content_type = response.headers.get("content-type", "").lower()
-                    if "application/json" not in content_type and "text/json" not in content_type:
-                        logger.warning(f"Response for {nreg} is not JSON (content-type: {content_type})")
-                        
-                        # If HTML is returned, try to extract basic info from HTML
-                        if "text/html" in content_type:
-                            logger.info(f"Received HTML instead of JSON for {nreg}, trying to extract info from HTML")
-                            try:
-                                from bs4 import BeautifulSoup
-                                soup = BeautifulSoup(response.text, 'html.parser')
-                                
-                                # Try to extract title from HTML
-                                title = None
-                                title_tag = soup.find('title')
-                                if title_tag:
-                                    title = title_tag.get_text().strip()
-                                    # Clean up title (remove "// Портал відкритих даних" etc)
-                                    if '//' in title:
-                                        title = title.split('//')[0].strip()
-                                
-                                # Try to find JSON data in script tags
-                                scripts = soup.find_all('script', type='application/json')
-                                for script in scripts:
-                                    try:
-                                        json_data = json.loads(script.string)
-                                        if json_data:
-                                            logger.info(f"Found JSON data in HTML script tag for {nreg}")
-                                            return json_data
-                                    except:
-                                        pass
-                                
-                                # If we found title but no JSON, return minimal structure
-                                if title:
-                                    logger.info(f"Extracted title from HTML: {title}")
-                                    return {
-                                        "title": title,
-                                        "nreg": nreg,
-                                        "source": "html_parsed"
-                                    }
-                            except ImportError:
-                                logger.warning("BeautifulSoup not available, cannot parse HTML")
-                            except Exception as html_error:
-                                logger.warning(f"Error parsing HTML: {html_error}")
-                        
-                        # Try to parse as JSON anyway
-                        try:
-                            return response.json()
-                        except:
-                            pass
+        from urllib.parse import quote
+        
+        # Prepare encoded nreg variants
+        if '/' in nreg:
+            parts = nreg.split('/')
+            encoded_parts = [quote(part, safe='') for part in parts]
+            encoded_nreg = '/'.join(encoded_parts)
+            # Also try with %2F encoding
+            encoded_nreg_full = quote(nreg, safe='')
+        else:
+            encoded_nreg = quote(nreg, safe='')
+            encoded_nreg_full = encoded_nreg
+        
+        # List of URL formats to try (in order of preference)
+        url_formats = [
+            # Try card endpoint first (usually faster and more reliable)
+            f"{self.base_url}/laws/card/{encoded_nreg}.json",
+            # Try show endpoint
+            f"{self.base_url}/laws/show/{encoded_nreg}.json",
+            # Try with full encoding
+            f"{self.base_url}/laws/card/{encoded_nreg_full}.json",
+            f"{self.base_url}/laws/show/{encoded_nreg_full}.json",
+            # Try without .json extension (some APIs return JSON by default)
+            f"{self.base_url}/laws/card/{encoded_nreg}",
+            f"{self.base_url}/laws/show/{encoded_nreg}",
+        ]
+        
+        headers_with_token = self._get_headers(use_token=True)
+        headers_no_token = self._get_headers(use_token=False)
+        
+        for url in url_formats:
+            try:
+                async with httpx.AsyncClient() as client:
+                    # Try with token first
+                    logger.debug(f"Trying URL: {url} (with token)")
+                    response = await client.get(url, headers=headers_with_token, timeout=30.0)
                     
-                    try:
-                        return response.json()
-                    except Exception as json_error:
-                        logger.error(f"Failed to parse JSON for {nreg}: {json_error}")
-                        logger.error(f"Response text (first 500 chars): {response.text[:500]}")
-                        return None
-                elif response.status_code == 404:
-                    logger.warning(f"Document {nreg} not found (404)")
-                    return None
-                elif response.status_code == 403:
-                    logger.warning(f"Access forbidden for {nreg} (403) - may need valid token")
-                    # Try without token
-                    headers_no_token = self._get_headers(use_token=False)
-                    response2 = await client.get(url, headers=headers_no_token, timeout=60.0)
-                    if response2.status_code == 200:
-                        logger.info(f"Successfully retrieved {nreg} without token")
-                        try:
-                            return response2.json()
-                        except Exception as json_error:
-                            logger.error(f"Failed to parse JSON for {nreg} (no token): {json_error}")
-                            return None
-                    return None
-                else:
-                    logger.error(f"Error getting document {nreg}: {response.status_code} - {response.text[:200]}")
-                    return None
-        except Exception as e:
-            logger.error(f"Exception getting document {nreg}: {e}", exc_info=True)
-            return None
+                    if response.status_code == 200:
+                        content_type = response.headers.get("content-type", "").lower()
+                        
+                        # Check if it's actually JSON
+                        if "application/json" in content_type or "text/json" in content_type:
+                            try:
+                                data = response.json()
+                                if data and isinstance(data, dict):
+                                    logger.info(f"Successfully retrieved JSON for {nreg} from {url}")
+                                    return data
+                            except json.JSONDecodeError:
+                                logger.debug(f"Response from {url} is not valid JSON")
+                        
+                        # If HTML is returned, skip this URL format
+                        if "text/html" in content_type:
+                            logger.debug(f"URL {url} returned HTML, trying next format")
+                            continue
+                    
+                    # If 403, try without token
+                    elif response.status_code == 403:
+                        logger.debug(f"Got 403 for {url}, trying without token")
+                        response2 = await client.get(url, headers=headers_no_token, timeout=30.0)
+                        if response2.status_code == 200:
+                            content_type2 = response2.headers.get("content-type", "").lower()
+                            if "application/json" in content_type2 or "text/json" in content_type2:
+                                try:
+                                    data = response2.json()
+                                    if data and isinstance(data, dict):
+                                        logger.info(f"Successfully retrieved JSON for {nreg} from {url} (no token)")
+                                        return data
+                                except json.JSONDecodeError:
+                                    pass
+                    
+                    # If 404, try next format
+                    elif response.status_code == 404:
+                        logger.debug(f"URL {url} returned 404, trying next format")
+                        continue
+                    
+            except Exception as e:
+                logger.debug(f"Error trying {url}: {e}")
+                continue
+        
+        # If all URL formats failed, try to get from document list
+        logger.info(f"All direct URL formats failed for {nreg}, checking if it exists in document list...")
+        try:
+            # Get a sample of documents to see the correct format
+            all_docs = await self.get_all_documents_list(limit=1000)
+            if nreg in all_docs:
+                logger.info(f"Found {nreg} in document list, but direct access failed")
+                # Document exists but direct access doesn't work
+                # Return minimal info
+                return {
+                    "nreg": nreg,
+                    "exists": True,
+                    "note": "Document exists but JSON endpoint unavailable"
+                }
+        except:
+            pass
+        
+        logger.warning(f"Could not retrieve JSON for {nreg} using any URL format")
+        return None
     
     async def get_document_card(self, nreg: str) -> Optional[Dict[str, Any]]:
-        """Get document card in JSON format"""
+        """
+        Get document card in JSON format
+        Uses the same multi-format approach as get_document_json
+        """
+        # Card endpoint is already tried first in get_document_json
+        # So we can reuse that logic
+        result = await self.get_document_json(nreg)
+        if result:
+            return result
+        
+        # If get_document_json failed, try card endpoint specifically
         await self._rate_limit()
         
         try:
             async with httpx.AsyncClient() as client:
-                # URL encode the nreg properly (same as get_document_json)
                 from urllib.parse import quote
                 if '/' in nreg:
                     parts = nreg.split('/')
@@ -189,10 +199,15 @@ class RadaAPIService:
                 response = await client.get(url, headers=headers, timeout=30.0)
                 
                 if response.status_code == 200:
-                    return response.json()
-                else:
-                    logger.warning(f"Card for {nreg} not found: {response.status_code}")
-                    return None
+                    content_type = response.headers.get("content-type", "").lower()
+                    if "application/json" in content_type or "text/json" in content_type:
+                        try:
+                            return response.json()
+                        except:
+                            pass
+                
+                logger.warning(f"Card for {nreg} not found: {response.status_code}")
+                return None
         except Exception as e:
             logger.error(f"Exception getting card {nreg}: {e}")
             return None

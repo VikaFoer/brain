@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel - Legal Graph System</title>
+    <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🛠️ Admin Panel - Legal Graph System</h1>
+            <p>Управління та перегляд оброблених актів</p>
+        </header>
+
+        <div class="main-content">
+            <!-- Sidebar -->
+            <aside class="sidebar">
+                <section class="actions">
+                    <h2>Дії</h2>
+                    <button id="refresh-btn" class="btn btn-primary">
+                        🔄 Оновити список
+                    </button>
+                    <button id="process-new-btn" class="btn btn-success">
+                        ➕ Обробити новий акт
+                    </button>
+                </section>
+
+                <section class="filters">
+                    <h2>Фільтри</h2>
+                    <label>
+                        <input type="checkbox" id="processed-only" checked>
+                        Тільки оброблені
+                    </label>
+                    <label>
+                        <input type="text" id="search-input" placeholder="Пошук по назві...">
+                    </label>
+                </section>
+
+                <section class="stats">
+                    <h2>Статистика</h2>
+                    <div id="stats-content">
+                        <div class="stat-item">
+                            <span class="stat-label">Всього актів:</span>
+                            <span class="stat-value" id="total-acts">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Оброблено:</span>
+                            <span class="stat-value" id="processed-acts">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Категорій:</span>
+                            <span class="stat-value" id="total-categories">0</span>
+                        </div>
+                    </div>
+                </section>
+            </aside>
+
+            <!-- Main area -->
+            <main class="main-area">
+                <div class="tabs">
+                    <button class="tab-btn active" data-tab="acts">📄 Акти</button>
+                    <button class="tab-btn" data-tab="categories">📁 Категорії</button>
+                </div>
+
+                <!-- Acts tab -->
+                <div id="acts-tab" class="tab-content active">
+                    <div id="acts-list" class="acts-list">
+                        <p class="loading">Завантаження...</p>
+                    </div>
+                </div>
+
+                <!-- Categories tab -->
+                <div id="categories-tab" class="tab-content">
+                    <div id="categories-list" class="categories-list">
+                        <p class="loading">Завантаження...</p>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Modal for act details -->
+    <div id="details-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modal-title">Деталі акту</h2>
+                <button class="close-btn" id="close-modal">&times;</button>
+            </div>
+            <div class="modal-body" id="modal-body">
+                <p class="loading">Завантаження...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for process new act -->
+    <div id="process-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Обробити новий акт</h2>
+                <button class="close-btn" id="close-process-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <label>
+                    Номер реєстрації (nreg):
+                    <input type="text" id="nreg-input" placeholder="254к/96-вр">
+                </label>
+                <div class="modal-actions">
+                    <button id="start-process-btn" class="btn btn-primary">Почати обробку</button>
+                    <button id="cancel-process-btn" class="btn btn-secondary">Скасувати</button>
+                </div>
+                <div id="process-status" class="process-status"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="admin.js"></script>
+</body>
+</html>

@@ -7,6 +7,7 @@ const API_BASE = window.location.hostname.includes('railway')
 let acts = [];
 let categories = [];
 let filteredActs = [];
+let radaActsList = [];
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -40,6 +41,9 @@ function setupEventListeners() {
 
     // Auto-download button
     document.getElementById('auto-download-btn').addEventListener('click', startAutoDownload);
+    
+    // Load Rada list button
+    document.getElementById('load-rada-list-btn').addEventListener('click', loadRadaActsList);
 
     // Close modals
     document.getElementById('close-modal').addEventListener('click', closeDetailsModal);

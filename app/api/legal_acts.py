@@ -262,6 +262,73 @@ async def get_legal_act_details(
     )
 
 
+@router.get("/rada-list")
+async def get_rada_acts_list(
+    limit: Optional[int] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Отримати список всіх можливих НПА з Rada API
+    Повертає список NREG з інформацією про те, які вже завантажені
+    """
+    from app.services.rada_api import rada_api
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
+    try:
+        logger.info("Fetching all documents list from Rada API...")
+        all_nregs = await rada_api.get_all_documents_list(limit=limit)
+        
+        if not all_nregs:
+            # Try fallback methods
+            logger.info("Trying fallback: get_new_documents_list")
+            all_nregs = await rada_api.get_new_documents_list(days=365)
+        
+        if not all_nregs:
+            return {
+                "total": 0,
+                "loaded": 0,
+                "not_loaded": 0,
+                "acts": []
+            }
+        
+        # Get all NREGs from database
+        db_nregs = {act.nreg for act in db.query(LegalAct.nreg).all()}
+        processed_nregs = {act.nreg for act in db.query(LegalAct.nreg).filter(LegalAct.is_processed == True).all()}
+        
+        # Build response with status for each NREG
+        acts_list = []
+        for nreg in all_nregs:
+            is_in_db = nreg in db_nregs
+            is_processed = nreg in processed_nregs
+            
+            acts_list.append({
+                "nreg": nreg,
+                "in_database": is_in_db,
+                "is_processed": is_processed,
+                "status": "processed" if is_processed else ("loaded" if is_in_db else "not_loaded")
+            })
+        
+        loaded_count = len([a for a in acts_list if a["in_database"]])
+        processed_count = len([a for a in acts_list if a["is_processed"]])
+        
+        return {
+            "total": len(acts_list),
+            "loaded": loaded_count,
+            "processed": processed_count,
+            "not_loaded": len(acts_list) - loaded_count,
+            "acts": acts_list
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting Rada acts list: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching Rada acts list: {str(e)}"
+        )
+
+
 @router.post("/auto-download")
 async def auto_download_acts(
     count: int = 10,

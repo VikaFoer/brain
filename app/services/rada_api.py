@@ -234,6 +234,92 @@ class RadaAPIService:
         except Exception as e:
             logger.error(f"Exception getting new list: {e}")
             return []
+    
+    async def get_all_documents_list(self, limit: Optional[int] = None) -> List[str]:
+        """
+        Get list of all document nregs from Rada API
+        Uses pagination to get all documents from /laws/main/r
+        """
+        all_nregs = []
+        page = 1
+        max_pages = 100  # Safety limit to avoid infinite loops
+        
+        try:
+            while page <= max_pages:
+                await self._rate_limit()
+                
+                async with httpx.AsyncClient() as client:
+                    # Main page with all documents
+                    if page == 1:
+                        url = f"{self.base_url}/laws/main/r"
+                    else:
+                        url = f"{self.base_url}/laws/main/r?page={page}"
+                    
+                    headers = self._get_headers(use_token=False)
+                    response = await client.get(url, headers=headers, timeout=60.0)
+                    
+                    if response.status_code == 200:
+                        import re
+                        from urllib.parse import unquote
+                        
+                        # Find all links to /laws/show/{nreg}
+                        # Pattern: /laws/show/{nreg} or /laws/show/{nreg}.json
+                        page_nregs = re.findall(r'/laws/show/([^"\s<>\.]+)', response.text)
+                        
+                        if not page_nregs:
+                            # No more documents found
+                            logger.info(f"No more documents on page {page}")
+                            break
+                        
+                        # Decode URL-encoded nregs and add to list
+                        decoded_nregs = []
+                        for nreg in page_nregs:
+                            try:
+                                decoded = unquote(nreg)
+                                if decoded not in all_nregs:
+                                    decoded_nregs.append(decoded)
+                            except:
+                                # If decoding fails, use as is
+                                if nreg not in all_nregs:
+                                    decoded_nregs.append(nreg)
+                        
+                        all_nregs.extend(decoded_nregs)
+                        
+                        logger.info(f"Page {page}: found {len(decoded_nregs)} new documents (total: {len(all_nregs)})")
+                        
+                        # Check if we've reached the limit
+                        if limit and len(all_nregs) >= limit:
+                            all_nregs = all_nregs[:limit]
+                            logger.info(f"Reached limit of {limit} documents")
+                            break
+                        
+                        # If we got fewer results than expected, might be last page
+                        if len(decoded_nregs) < 20:  # Assuming ~20-50 per page
+                            logger.info(f"Few results on page {page}, assuming last page")
+                            break
+                        
+                        page += 1
+                    elif response.status_code == 404:
+                        # No more pages
+                        logger.info(f"No more pages (404 on page {page})")
+                        break
+                    else:
+                        logger.warning(f"Error getting page {page}: {response.status_code}")
+                        break
+                
+                # Safety check to avoid infinite loops
+                if page > max_pages:
+                    logger.warning(f"Reached max pages limit ({max_pages})")
+                    break
+            
+            # Remove duplicates and return
+            unique_nregs = list(set(all_nregs))
+            logger.info(f"Total unique documents found: {len(unique_nregs)}")
+            return unique_nregs
+            
+        except Exception as e:
+            logger.error(f"Exception getting all documents list: {e}", exc_info=True)
+            return all_nregs  # Return what we have so far
 
 
 # Singleton instance

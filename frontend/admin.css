@@ -926,6 +926,19 @@ header p {
     word-break: break-all;
 }
 
+.rada-act-processed-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: rgba(16, 185, 129, 0.1);
+    color: var(--success);
+    border: 1px solid var(--success);
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
 .rada-act-status {
     display: flex;
     align-items: center;

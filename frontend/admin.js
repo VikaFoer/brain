@@ -711,6 +711,13 @@ async function checkActOnRada(nreg) {
 
 // Process act
 async function processAct(nreg) {
+    // Check if act is already processed in the current list
+    const actInList = radaActsList.find(a => a.nreg === nreg);
+    if (actInList && actInList.is_processed) {
+        showNotification('info', `ℹ️ Акт ${nreg} вже оброблено. Використовуйте force_reprocess=true для повторної обробки.`, 5000);
+        return;
+    }
+    
     // First check if act exists
     const statusDiv = document.createElement('div');
     statusDiv.className = 'status-message';
@@ -719,6 +726,25 @@ async function processAct(nreg) {
     document.body.appendChild(statusDiv);
     
     const checkResult = await checkActExists(nreg);
+    
+    // Check if already processed
+    if (checkResult.is_processed) {
+        statusDiv.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)';
+        statusDiv.innerHTML = `
+            <div style="display: flex; align-items: flex-start; gap: 12px;">
+                <div style="font-size: 24px;">ℹ️</div>
+                <div style="flex: 1;">
+                    <div style="font-weight: 600; font-size: 16px; margin-bottom: 8px;">Акт вже оброблено</div>
+                    <div style="font-size: 14px; opacity: 0.95; margin-bottom: 4px; font-weight: 500;">${checkResult.title || nreg}</div>
+                    <div style="font-size: 12px; opacity: 0.8; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.2);">
+                        Акт вже був оброблено раніше. Повторна обробка не потрібна.
+                    </div>
+                </div>
+            </div>
+        `;
+        setTimeout(() => statusDiv.remove(), 5000);
+        return;
+    }
     
     if (!checkResult.exists) {
         statusDiv.style.background = 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)';

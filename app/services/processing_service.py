@@ -22,15 +22,28 @@ class ProcessingService:
     def __init__(self, db: Session):
         self.db = db
     
-    async def process_legal_act(self, nreg: str) -> Optional[LegalAct]:
-        """Process a single legal act: download, extract elements, sync to both DBs"""
+    async def process_legal_act(self, nreg: str, force_reprocess: bool = False) -> Optional[LegalAct]:
+        """
+        Process a single legal act: download, extract elements, sync to both DBs
         
-        # Check if already exists
+        Args:
+            nreg: NREG identifier
+            force_reprocess: If True, reprocess even if already processed
+        
+        Returns:
+            LegalAct if successful, None otherwise
+        """
+        
+        # Check if already exists and processed
         act = self.db.query(LegalAct).filter(LegalAct.nreg == nreg).first()
         
-        if act and act.is_processed:
-            logger.info(f"Act {nreg} already processed")
+        if act and act.is_processed and not force_reprocess:
+            logger.info(f"Act {nreg} already processed, skipping (use force_reprocess=True to reprocess)")
             return act
+        
+        # If act exists but not processed, we still need to download/update it
+        if act and not act.is_processed:
+            logger.info(f"Act {nreg} exists but not processed, continuing with processing...")
         
         # Download from Rada API
         logger.info(f"Downloading act {nreg} from Rada API...")

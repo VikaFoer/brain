@@ -105,19 +105,89 @@ async def initialize_categories(db: Session = Depends(get_db)):
         )
 
 
-@router.get("/{nreg:path}", response_model=LegalActResponse)
-async def get_legal_act(nreg: str = Path(..., description="Номер реєстрації акту"), db: Session = Depends(get_db)):
-    """Get legal act by nreg"""
-    # Decode URL-encoded characters (each segment separately)
-    # FastAPI's {nreg:path} may split on /, so we need to handle it properly
+# IMPORTANT: Specific routes must come BEFORE the general {nreg:path} route
+# Otherwise FastAPI will match /check, /details, /process as part of nreg
+
+@router.get("/{nreg:path}/check")
+async def check_legal_act_exists(
+    nreg: str = Path(..., description="Номер реєстрації акту"),
+    db: Session = Depends(get_db)
+):
+    """Check if legal act exists on Rada website"""
+    # Decode URL-encoded characters
     nreg = unquote(nreg)
-    # If nreg contains /, FastAPI might have split it - check if act exists
+    
+    from app.services.rada_api import rada_api
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
+    # Check if already in database
     act = db.query(LegalAct).filter(LegalAct.nreg == nreg).first()
-    if not act:
-        # Try to find by partial match if split happened
-        # This shouldn't happen with {nreg:path}, but just in case
-        raise HTTPException(status_code=404, detail=f"Legal act not found: {nreg}")
-    return act
+    if act:
+        return {
+            "exists": True,
+            "in_database": True,
+            "is_processed": act.is_processed,
+            "title": act.title,
+            "message": "Акт знайдено в базі даних"
+        }
+    
+    # Check on Rada website
+    try:
+        logger.info(f"Checking act {nreg} on Rada website...")
+        document_json = await rada_api.get_document_json(nreg)
+        if document_json:
+            title = document_json.get("title", nreg)
+            logger.info(f"Act {nreg} found on Rada website: {title}")
+            return {
+                "exists": True,
+                "in_database": False,
+                "is_processed": False,
+                "title": title,
+                "message": f"Акт знайдено на сайті data.rada.gov.ua: {title}"
+            }
+        else:
+            logger.warning(f"Act {nreg} not found on Rada website")
+            # Try alternative formats
+            alternative_nregs = [
+                nreg.replace('/', '-'),
+                nreg.replace('к', 'к/'),
+                nreg.upper(),
+                nreg.lower()
+            ]
+            
+            for alt_nreg in alternative_nregs:
+                if alt_nreg == nreg:
+                    continue
+                logger.info(f"Trying alternative format: {alt_nreg}")
+                alt_doc = await rada_api.get_document_json(alt_nreg)
+                if alt_doc:
+                    title = alt_doc.get("title", alt_nreg)
+                    return {
+                        "exists": True,
+                        "in_database": False,
+                        "is_processed": False,
+                        "title": title,
+                        "message": f"Акт знайдено на сайті data.rada.gov.ua (альтернативний формат): {title}"
+                    }
+            
+            return {
+                "exists": False,
+                "in_database": False,
+                "is_processed": False,
+                "title": None,
+                "message": f"Акт {nreg} не знайдено на сайті data.rada.gov.ua. Перевірте правильність номера реєстрації."
+            }
+    except Exception as e:
+        logger.error(f"Error checking act {nreg}: {e}", exc_info=True)
+        return {
+            "exists": False,
+            "in_database": False,
+            "is_processed": False,
+            "title": None,
+            "message": f"Помилка при перевірці акту: {str(e)}"
+        }
 
 
 @router.get("/{nreg:path}/details", response_model=LegalActDetailResponse)
@@ -287,3 +357,15 @@ async def process_legal_act(
         import asyncio
         asyncio.run(process())
         return {"message": f"Processing completed for {nreg}", "status": "completed"}
+
+
+# This route must be LAST to avoid matching /check, /details, /process as part of nreg
+@router.get("/{nreg:path}", response_model=LegalActResponse)
+async def get_legal_act(nreg: str = Path(..., description="Номер реєстрації акту"), db: Session = Depends(get_db)):
+    """Get legal act by nreg"""
+    # Decode URL-encoded characters
+    nreg = unquote(nreg)
+    act = db.query(LegalAct).filter(LegalAct.nreg == nreg).first()
+    if not act:
+        raise HTTPException(status_code=404, detail=f"Legal act not found: {nreg}")
+    return act

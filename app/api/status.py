@@ -14,7 +14,7 @@ router = APIRouter()
 
 @router.get("/")
 async def get_status(db: Session = Depends(get_db)):
-    """Get system status and statistics"""
+    """Get system status including database connection"""
     try:
         # Check if database is accessible
         from sqlalchemy import inspect, text
@@ -58,10 +58,37 @@ async def get_status(db: Session = Depends(get_db)):
             except:
                 neo4j_status = "error"
         
+        # Determine database type
+        database_url = settings.DATABASE_URL or "sqlite:///./legal_db.db"
+        is_sqlite = database_url.startswith("sqlite")
+        db_type = "sqlite" if is_sqlite else "postgresql"
+        
+        # Show preview of DATABASE_URL (hide password)
+        db_url_preview = None
+        if database_url and not is_sqlite:
+            # Hide password in preview
+            try:
+                from urllib.parse import urlparse, urlunparse
+                parsed = urlparse(database_url)
+                if parsed.password:
+                    # Replace password with ***
+                    netloc = f"{parsed.username}:***@{parsed.hostname}"
+                    if parsed.port:
+                        netloc += f":{parsed.port}"
+                    safe_parsed = parsed._replace(netloc=netloc)
+                    db_url_preview = urlunparse(safe_parsed)
+                else:
+                    db_url_preview = database_url[:50] + "..." if len(database_url) > 50 else database_url
+            except:
+                db_url_preview = "postgresql://***"
+        
         return {
             "status": "online",
             "database": {
-                "type": "sqlite" if "sqlite" in str(settings.DATABASE_URL) else "postgresql",
+                "type": db_type,
+                "connected": True,
+                "tables_exist": tables_exist,
+                "url_preview": db_url_preview,
                 "categories_count": categories_count,
                 "legal_acts_count": acts_count,
                 "initialized": categories_count > 0

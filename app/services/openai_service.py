@@ -256,6 +256,69 @@ class OpenAIService:
         except Exception as e:
             logger.error(f"Error in chat: {e}")
             return "Вибачте, сталася помилка при обробці вашого запиту."
+    
+    async def chat_about_database(
+        self,
+        user_question: str,
+        context: Dict[str, Any],
+        conversation_history: List[Dict[str, str]] = None
+    ) -> str:
+        """Chat about database content - acts, categories, relations, elements"""
+        if not self.client:
+            raise RuntimeError("OpenAI API key is not configured.")
+        
+        system_prompt = """Ти експерт-асистент для системи аналізу нормативно-правових актів України.
+
+Твоя задача - відповідати на питання користувачів про:
+1. Нормативно-правові акти в базі даних (їх назви, типи, статуси, дати)
+2. Категорії законодавства та їх елементи
+3. Зв'язки між актами та категоріями
+4. Статистику обробки даних
+5. Елементи множин, виділені з актів
+
+ВАЖЛИВО:
+- Використовуй ТІЛЬКИ дані з наданого контексту
+- Якщо в контексті немає відповіді, чесно скажи про це
+- Надавай конкретні приклади з контексту (NREG, назви актів)
+- Відповідай українською мовою
+- Буди детальним та корисним"""
+
+        # Build messages with conversation history
+        messages = [{"role": "system", "content": system_prompt}]
+        
+        # Add conversation history
+        if conversation_history:
+            for msg in conversation_history[-6:]:  # Last 6 messages for context
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                if role in ["user", "assistant"] and content:
+                    messages.append({"role": role, "content": content})
+        
+        # Add current context and question
+        context_str = json.dumps(context, ensure_ascii=False, indent=2)
+        
+        user_prompt = f"""Дані з бази даних:
+{context_str}
+
+Питання користувача: {user_question}
+
+Відповідай на основі наданих даних. Якщо потрібної інформації немає в контексті, повідом про це."""
+
+        messages.append({"role": "user", "content": user_prompt})
+
+        try:
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=0.7,
+                max_tokens=1500
+            )
+            
+            return response.choices[0].message.content
+            
+        except Exception as e:
+            logger.error(f"Error in database chat: {e}")
+            return "Вибачте, сталася помилка при обробці вашого запиту. Перевірте, чи налаштовано OpenAI API ключ."
 
 
 # Singleton instance

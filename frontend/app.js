@@ -279,8 +279,10 @@ function switchTab(tab) {
     const sendBtn = document.getElementById('send-btn');
     
     if (tab === 'chat') {
-        chatInput.disabled = selectedCategories.length === 0;
-        sendBtn.disabled = selectedCategories.length === 0;
+        // Chat is always enabled now - can ask general questions
+        chatInput.disabled = false;
+        sendBtn.disabled = false;
+        chatInput.placeholder = "Задайте питання про акти, категорії, зв'язки...";
     }
 }
 

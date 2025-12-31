@@ -3,26 +3,107 @@ API endpoints for chat with OpenAI
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from sqlalchemy import or_, func
+from typing import List, Optional, Dict, Any
 from app.core.database import get_db
 from app.models.category import Category
-from app.models.legal_act import LegalAct
+from app.models.legal_act import LegalAct, ActCategory
 from app.services.openai_service import openai_service
 from app.services.neo4j_service import neo4j_service
 from pydantic import BaseModel
+import logging
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class ChatRequest(BaseModel):
     question: str
     category_ids: Optional[List[int]] = None
-    context_type: Optional[str] = "relations"  # relations, elements, general
+    context_type: Optional[str] = "general"  # relations, elements, general
+    conversation_history: Optional[List[Dict[str, str]]] = None  # For context
 
 
 class ChatResponse(BaseModel):
     answer: str
     context_used: dict
+    relevant_acts: List[dict] = []
+    relevant_categories: List[dict] = []
+
+
+def search_relevant_acts(question: str, db: Session, limit: int = 10) -> List[Dict[str, Any]]:
+    """Search for relevant legal acts based on question"""
+    try:
+        # Search in title and text
+        acts = db.query(LegalAct).filter(
+            or_(
+                LegalAct.title.ilike(f"%{question}%"),
+                LegalAct.text.ilike(f"%{question}%"),
+                LegalAct.nreg.ilike(f"%{question}%")
+            )
+        ).limit(limit).all()
+        
+        result = []
+        for act in acts:
+            result.append({
+                "nreg": act.nreg,
+                "title": act.title,
+                "document_type": act.document_type,
+                "status": act.status,
+                "is_processed": act.is_processed,
+                "date_acceptance": act.date_acceptance.isoformat() if act.date_acceptance else None,
+                "date_publication": act.date_publication.isoformat() if act.date_publication else None,
+            })
+        return result
+    except Exception as e:
+        logger.error(f"Error searching acts: {e}")
+        return []
+
+
+def search_relevant_categories(question: str, db: Session) -> List[Dict[str, Any]]:
+    """Search for relevant categories based on question"""
+    try:
+        categories = db.query(Category).filter(
+            Category.name.ilike(f"%{question}%")
+        ).limit(5).all()
+        
+        result = []
+        for cat in categories:
+            # Get acts count for this category
+            acts_count = db.query(func.count(ActCategory.act_id)).filter(
+                ActCategory.category_id == cat.id
+            ).scalar() or 0
+            
+            result.append({
+                "id": cat.id,
+                "name": cat.name,
+                "element_count": cat.element_count,
+                "acts_count": acts_count
+            })
+        return result
+    except Exception as e:
+        logger.error(f"Error searching categories: {e}")
+        return []
+
+
+def get_database_statistics(db: Session) -> Dict[str, Any]:
+    """Get general database statistics"""
+    try:
+        total_acts = db.query(func.count(LegalAct.id)).scalar() or 0
+        processed_acts = db.query(func.count(LegalAct.id)).filter(
+            LegalAct.is_processed == True
+        ).scalar() or 0
+        total_categories = db.query(func.count(Category.id)).scalar() or 0
+        
+        return {
+            "total_acts": total_acts,
+            "processed_acts": processed_acts,
+            "total_categories": total_categories,
+            "processing_rate": round((processed_acts / total_acts * 100) if total_acts > 0 else 0, 2)
+        }
+    except Exception as e:
+        logger.error(f"Error getting statistics: {e}")
+        return {}
 
 
 @router.post("/", response_model=ChatResponse)
@@ -30,18 +111,27 @@ async def chat(
     request: ChatRequest,
     db: Session = Depends(get_db)
 ):
-    """Chat about relations and legal acts"""
+    """Chat about legal acts, categories, and relations using database data"""
     
-    # Build context
-    context = {}
+    # Build context from database
+    context = {
+        "database_statistics": get_database_statistics(db)
+    }
     
+    # Search for relevant acts and categories based on question
+    relevant_acts = search_relevant_acts(request.question, db, limit=5)
+    relevant_categories = search_relevant_categories(request.question, db)
+    
+    context["relevant_acts"] = relevant_acts
+    context["relevant_categories"] = relevant_categories
+    
+    # If specific categories requested, get their info
     if request.category_ids:
-        # Get categories info
         categories = db.query(Category).filter(
             Category.id.in_(request.category_ids)
         ).all()
         
-        context["categories"] = [
+        context["selected_categories"] = [
             {
                 "id": cat.id,
                 "name": cat.name,
@@ -50,28 +140,70 @@ async def chat(
             for cat in categories
         ]
         
+        # Get acts for selected categories
+        acts_in_categories = db.query(LegalAct).join(
+            ActCategory
+        ).filter(
+            ActCategory.category_id.in_(request.category_ids)
+        ).limit(10).all()
+        
+        context["acts_in_categories"] = [
+            {
+                "nreg": act.nreg,
+                "title": act.title,
+                "is_processed": act.is_processed
+            }
+            for act in acts_in_categories
+        ]
+        
         # Get relations between categories if multiple selected
         if len(request.category_ids) >= 2:
-            relations = neo4j_service.get_relations_between_categories(
-                request.category_ids[0],
-                request.category_ids[1]
-            )
-            context["relations"] = relations[:10]  # Limit to 10
+            try:
+                relations = neo4j_service.get_relations_between_categories(
+                    request.category_ids[0],
+                    request.category_ids[1]
+                )
+                context["relations"] = relations[:10] if relations else []
+            except:
+                context["relations"] = []
         
         # Get statistics
-        stats = neo4j_service.get_category_statistics()
-        context["statistics"] = [
-            s for s in stats if s["id"] in request.category_ids
+        try:
+            stats = neo4j_service.get_category_statistics()
+            context["statistics"] = [
+                s for s in stats if s.get("id") in request.category_ids
+            ] if stats else []
+        except:
+            context["statistics"] = []
+    
+    # Get processed acts with extracted elements
+    if "elements" in request.context_type.lower() or "елемент" in request.question.lower():
+        processed_acts = db.query(LegalAct).filter(
+            LegalAct.is_processed == True,
+            LegalAct.extracted_elements.isnot(None)
+        ).limit(5).all()
+        
+        context["processed_acts_with_elements"] = [
+            {
+                "nreg": act.nreg,
+                "title": act.title,
+                "has_elements": bool(act.extracted_elements),
+                "has_relations": bool(act.extracted_relations)
+            }
+            for act in processed_acts
         ]
     
-    # Get answer from OpenAI
-    answer = await openai_service.chat_about_relations(
+    # Get answer from OpenAI with full context
+    answer = await openai_service.chat_about_database(
         request.question,
-        context
+        context,
+        conversation_history=request.conversation_history or []
     )
     
     return ChatResponse(
         answer=answer,
-        context_used=context
+        context_used=context,
+        relevant_acts=relevant_acts,
+        relevant_categories=relevant_categories
     )
 

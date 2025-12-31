@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Panel - Legal Graph System</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="admin.css">
 </head>
 <body>
@@ -17,28 +20,28 @@
             <!-- Sidebar -->
             <aside class="sidebar">
                 <section class="actions">
-                    <h2>Дії</h2>
+                    <h2>⚡ Дії</h2>
                     <button id="refresh-btn" class="btn btn-primary">
-                        🔄 Оновити список
+                        <span>🔄</span> Оновити список
                     </button>
                     <button id="process-new-btn" class="btn btn-success">
-                        ➕ Обробити новий акт
+                        <span>➕</span> Обробити новий акт
                     </button>
                 </section>
 
                 <section class="filters">
-                    <h2>Фільтри</h2>
+                    <h2>🔍 Фільтри</h2>
                     <label>
                         <input type="checkbox" id="processed-only" checked>
                         Тільки оброблені
                     </label>
                     <label>
-                        <input type="text" id="search-input" placeholder="Пошук по назві...">
+                        <input type="text" id="search-input" placeholder="🔎 Пошук по назві...">
                     </label>
                 </section>
 
                 <section class="stats">
-                    <h2>Статистика</h2>
+                    <h2>📊 Статистика</h2>
                     <div id="stats-content">
                         <div class="stat-item">
                             <span class="stat-label">Всього актів:</span>
@@ -59,8 +62,12 @@
             <!-- Main area -->
             <main class="main-area">
                 <div class="tabs">
-                    <button class="tab-btn active" data-tab="acts">📄 Акти</button>
-                    <button class="tab-btn" data-tab="categories">📁 Категорії</button>
+                    <button class="tab-btn active" data-tab="acts">
+                        <span>📄</span> Акти
+                    </button>
+                    <button class="tab-btn" data-tab="categories">
+                        <span>📁</span> Категорії
+                    </button>
                 </div>
 
                 <!-- Acts tab -->
@@ -84,7 +91,7 @@
     <div id="details-modal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2 id="modal-title">Деталі акту</h2>
+                <h2 id="modal-title">📋 Деталі акту</h2>
                 <button class="close-btn" id="close-modal">&times;</button>
             </div>
             <div class="modal-body" id="modal-body">
@@ -97,7 +104,7 @@
     <div id="process-modal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2>Обробити новий акт</h2>
+                <h2>⚙️ Обробити новий акт</h2>
                 <button class="close-btn" id="close-process-modal">&times;</button>
             </div>
             <div class="modal-body">

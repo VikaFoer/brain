@@ -133,12 +133,12 @@ function renderActs() {
         return;
     }
 
-    container.innerHTML = filteredActs.map(act => `
+            container.innerHTML = filteredActs.map(act => `
         <div class="act-card ${act.is_processed ? 'processed' : 'not-processed'}">
             <div class="act-header">
-                <div>
-                    <div class="act-title">${act.title}</div>
-                    <div class="act-nreg">${act.nreg}</div>
+                <div style="flex: 1;">
+                    <div class="act-title">${escapeHtml(act.title)}</div>
+                    <div class="act-nreg">${escapeHtml(act.nreg)}</div>
                 </div>
                 <div class="act-badges">
                     ${act.is_processed 
@@ -147,12 +147,12 @@ function renderActs() {
                 </div>
             </div>
             <div class="act-actions">
-                <button class="btn btn-primary btn-small" onclick="showActDetails('${act.nreg}')">
-                    👁️ Деталі
+                <button class="btn btn-primary btn-small" onclick="showActDetails('${escapeHtml(act.nreg)}')">
+                    <span>👁️</span> Деталі
                 </button>
                 ${!act.is_processed 
-                    ? `<button class="btn btn-success btn-small" onclick="processAct('${act.nreg}')">
-                        ⚙️ Обробити
+                    ? `<button class="btn btn-success btn-small" onclick="processAct('${escapeHtml(act.nreg)}')">
+                        <span>⚙️</span> Обробити
                     </button>`
                     : ''}
             </div>
@@ -207,7 +207,7 @@ async function showActDetails(nreg) {
                 <div class="details-grid">
                     <div class="detail-item">
                         <div class="detail-label">Назва</div>
-                        <div class="detail-value">${data.title}</div>
+                        <div class="detail-value">${escapeHtml(data.title)}</div>
                     </div>
                     <div class="detail-item">
                         <div class="detail-label">Статус обробки</div>
@@ -222,7 +222,7 @@ async function showActDetails(nreg) {
                     ${data.document_type ? `
                     <div class="detail-item">
                         <div class="detail-label">Тип документа</div>
-                        <div class="detail-value">${data.document_type}</div>
+                        <div class="detail-value">${escapeHtml(data.document_type)}</div>
                     </div>
                     ` : ''}
                 </div>
@@ -235,7 +235,7 @@ async function showActDetails(nreg) {
                     <h3>📁 Категорії (${data.categories.length})</h3>
                     <div class="act-categories">
                         ${data.categories.map(cat => `
-                            <span class="category-tag">${cat.name}</span>
+                            <span class="category-tag">${escapeHtml(cat.name)}</span>
                         `).join('')}
                     </div>
                 </div>
@@ -251,7 +251,7 @@ async function showActDetails(nreg) {
                         <h3>🏷️ Виділені категорії</h3>
                         <div class="act-categories">
                             ${elements.categories.map(cat => `
-                                <span class="category-tag">${cat}</span>
+                                <span class="category-tag">${escapeHtml(cat)}</span>
                             `).join('')}
                         </div>
                     </div>
@@ -268,7 +268,7 @@ async function showActDetails(nreg) {
                                     <div class="element-header">
                                         <span class="element-type">${el.type || 'Елемент'} ${el.number || ''}</span>
                                     </div>
-                                    <div class="element-text">${el.text || ''}</div>
+                                    <div class="element-text">${escapeHtml(el.text || '')}</div>
                                 </div>
                             `).join('')}
                             ${elements.elements.length > 10 ? `<p>... та ще ${elements.elements.length - 10} елементів</p>` : ''}
@@ -288,7 +288,7 @@ async function showActDetails(nreg) {
                                         <span class="relation-type">${rel.type || 'зв\'язок'}</span>
                                         <div>${rel.target_nreg || 'N/A'}</div>
                                     </div>
-                                    <div>${rel.description || ''}</div>
+                                    <div>${escapeHtml(rel.description || '')}</div>
                                 </div>
                             `).join('')}
                         </div>
@@ -382,6 +382,13 @@ function switchTab(tab) {
 
     document.querySelector(`[data-tab="${tab}"]`).classList.add('active');
     document.getElementById(`${tab}-tab`).classList.add('active');
+}
+
+// Escape HTML to prevent XSS
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 // Make functions available globally

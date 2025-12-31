@@ -124,98 +124,118 @@ class ProcessingService:
         # Extract elements using OpenAI
         if text:
             logger.info(f"Extracting elements from {nreg} using OpenAI...")
-            extracted = await openai_service.extract_set_elements(
-                legal_act_text=text,
-                act_title=title,
-                categories=[]  # TODO: get from DB
-            )
-            
-            act.extracted_elements = extracted
-            act.is_processed = True
-            act.processed_at = datetime.utcnow()
-            
-            # Process categories
-            for cat_name in extracted.get("categories", []):
-                category = self.db.query(Category).filter(Category.name == cat_name).first()
-                if category:
-                    # Link to category
-                    act_category = ActCategory(
-                        act_id=act.id,
-                        category_id=category.id
-                    )
-                    self.db.add(act_category)
-                    
-                    # Sync to Neo4j
-                    neo4j_service.link_act_to_category(act.id, category.id)
-            
-            # Process subsets
-            for subset_data in extracted.get("subsets", []):
-                subset_name = subset_data.get("name")
-                category_name = subset_data.get("category")
+            try:
+                extracted = await openai_service.extract_set_elements(
+                    legal_act_text=text,
+                    act_title=title,
+                    categories=[]  # TODO: get from DB
+                )
                 
-                if category_name:
-                    category = self.db.query(Category).filter(Category.name == category_name).first()
-                    if category:
-                        subset = self.db.query(Subset).filter(
-                            Subset.name == subset_name,
-                            Subset.category_id == category.id
-                        ).first()
-                        
-                        if not subset:
-                            subset = Subset(
-                                name=subset_name,
-                                category_id=category.id,
-                                description=subset_data.get("description")
+                # Check if extraction was successful (not empty)
+                if extracted and (extracted.get("categories") or extracted.get("elements") or extracted.get("relations")):
+                    act.extracted_elements = extracted
+                    act.is_processed = True
+                    act.processed_at = datetime.utcnow()
+                    
+                    # Process categories
+                    for cat_name in extracted.get("categories", []):
+                        category = self.db.query(Category).filter(Category.name == cat_name).first()
+                        if category:
+                            # Link to category
+                            act_category = ActCategory(
+                                act_id=act.id,
+                                category_id=category.id
                             )
-                            self.db.add(subset)
-                            self.db.commit()
-                            self.db.refresh(subset)
+                            self.db.add(act_category)
                             
                             # Sync to Neo4j
-                            neo4j_service.create_subset_node(
-                                subset.id,
-                                subset.name,
-                                category.id
-                            )
-                        
-                        act.subset_id = subset.id
-                        
-                        # Sync act to Neo4j
-                        neo4j_service.create_legal_act_node(
-                            act.id,
-                            act.nreg,
-                            act.title,
-                            subset.id
-                        )
-            
-            # Process relations
-            for rel_data in extracted.get("relations", []):
-                target_nreg = rel_data.get("target_nreg")
-                if target_nreg:
-                    target_act = self.db.query(LegalAct).filter(
-                        LegalAct.nreg == target_nreg
-                    ).first()
+                            try:
+                                neo4j_service.link_act_to_category(act.id, category.id)
+                            except RuntimeError:
+                                logger.warning("Neo4j not configured, skipping sync")
                     
-                    if target_act:
-                        relation = ActRelation(
-                            source_act_id=act.id,
-                            target_act_id=target_act.id,
-                            relation_type=rel_data.get("type", "посилається"),
-                            description=rel_data.get("description"),
-                            confidence=rel_data.get("confidence", 100)
-                        )
-                        self.db.add(relation)
+                    # Process subsets
+                    for subset_data in extracted.get("subsets", []):
+                        subset_name = subset_data.get("name")
+                        category_name = subset_data.get("category")
                         
-                        # Sync to Neo4j
-                        neo4j_service.create_relation(
-                            act.id,
-                            target_act.id,
-                            rel_data.get("type", "посилається"),
-                            rel_data.get("description"),
-                            rel_data.get("confidence", 100)
-                        )
-            
-            self.db.commit()
+                        if category_name:
+                            category = self.db.query(Category).filter(Category.name == category_name).first()
+                            if category:
+                                subset = self.db.query(Subset).filter(
+                                    Subset.name == subset_name,
+                                    Subset.category_id == category.id
+                                ).first()
+                                
+                                if not subset:
+                                    subset = Subset(
+                                        name=subset_name,
+                                        category_id=category.id,
+                                        description=subset_data.get("description")
+                                    )
+                                    self.db.add(subset)
+                                    self.db.commit()
+                                    self.db.refresh(subset)
+                                    
+                                    # Sync to Neo4j
+                                    try:
+                                        neo4j_service.create_subset_node(
+                                            subset.id,
+                                            subset.name,
+                                            category.id
+                                        )
+                                    except RuntimeError:
+                                        logger.warning("Neo4j not configured, skipping sync")
+                                
+                                act.subset_id = subset.id
+                                
+                                # Sync act to Neo4j
+                                try:
+                                    neo4j_service.create_legal_act_node(
+                                        act.id,
+                                        act.nreg,
+                                        act.title,
+                                        subset.id
+                                    )
+                                except RuntimeError:
+                                    logger.warning("Neo4j not configured, skipping sync")
+                    
+                    # Process relations
+                    for rel_data in extracted.get("relations", []):
+                        target_nreg = rel_data.get("target_nreg")
+                        if target_nreg:
+                            target_act = self.db.query(LegalAct).filter(
+                                LegalAct.nreg == target_nreg
+                            ).first()
+                            
+                            if target_act:
+                                relation = ActRelation(
+                                    source_act_id=act.id,
+                                    target_act_id=target_act.id,
+                                    relation_type=rel_data.get("type", "посилається"),
+                                    description=rel_data.get("description"),
+                                    confidence=rel_data.get("confidence", 100)
+                                )
+                                self.db.add(relation)
+                                
+                                # Sync to Neo4j
+                                try:
+                                    neo4j_service.create_relation(
+                                        act.id,
+                                        target_act.id,
+                                        rel_data.get("type", "посилається"),
+                                        rel_data.get("description"),
+                                        rel_data.get("confidence", 100)
+                                    )
+                                except RuntimeError:
+                                    logger.warning("Neo4j not configured, skipping sync")
+                    
+                    self.db.commit()
+                else:
+                    logger.warning(f"Extraction returned empty result for {nreg}")
+                    act.is_processed = False
+                    act.extracted_elements = None
+                    self.db.commit()
         
         # Sync to Neo4j if not already synced
         neo4j_service.create_legal_act_node(

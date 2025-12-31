@@ -38,6 +38,15 @@ class OpenAIService:
                 "metadata": {...}
             }
         """
+        if not self.client:
+            logger.warning("OpenAI API key is not configured. Cannot extract elements.")
+            return {
+                "categories": [],
+                "subsets": [],
+                "elements": [],
+                "relations": [],
+                "metadata": {}
+            }
         
         system_prompt = """Ти експерт з аналізу нормативно-правових актів України. 
 Твоя задача - виділити з тексту акту елементи множини та їх зв'язки.

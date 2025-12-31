@@ -609,6 +609,12 @@ async def process_legal_act(
         # Create new session for background task
         bg_db = SessionLocal()
         try:
+            # Check if already processed
+            existing_act = bg_db.query(LegalAct).filter(LegalAct.nreg == nreg).first()
+            if existing_act and existing_act.is_processed:
+                logger.info(f"Act {nreg} already processed, skipping")
+                return
+            
             logger.info(f"Starting background processing for {nreg}")
             bg_service = ProcessingService(bg_db)
             result = await bg_service.process_legal_act(nreg)

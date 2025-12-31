@@ -1,9 +1,10 @@
 """
 API endpoints for legal acts
 """
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Path
 from sqlalchemy.orm import Session
 from typing import List, Optional
+from urllib.parse import unquote
 from app.core.database import get_db
 from app.models.legal_act import LegalAct
 from app.models.category import Category
@@ -40,39 +41,6 @@ async def get_legal_acts(
     return acts
 
 
-@router.get("/{nreg}", response_model=LegalActResponse)
-async def get_legal_act(nreg: str, db: Session = Depends(get_db)):
-    """Get legal act by nreg"""
-    act = db.query(LegalAct).filter(LegalAct.nreg == nreg).first()
-    if not act:
-        raise HTTPException(status_code=404, detail="Legal act not found")
-    return act
-
-
-@router.post("/{nreg}/process")
-async def process_legal_act(
-    nreg: str,
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db)
-):
-    """Process a legal act (download, extract elements, sync to DBs)"""
-    from app.core.database import SessionLocal
-    import asyncio
-    
-    async def process():
-        # Create new session for background task
-        bg_db = SessionLocal()
-        try:
-            bg_service = ProcessingService(bg_db)
-            await bg_service.process_legal_act(nreg)
-        finally:
-            bg_db.close()
-    
-    background_tasks.add_task(lambda: asyncio.run(process()))
-    
-    return {"message": f"Processing started for {nreg}"}
-
-
 @router.post("/initialize-categories")
 async def initialize_categories(db: Session = Depends(get_db)):
     """Initialize categories in database"""
@@ -99,3 +67,46 @@ async def initialize_categories(db: Session = Depends(get_db)):
             status_code=500,
             detail=f"Error initializing categories: {error_msg}"
         )
+
+
+@router.get("/{nreg:path}", response_model=LegalActResponse)
+async def get_legal_act(nreg: str = Path(..., description="Номер реєстрації акту"), db: Session = Depends(get_db)):
+    """Get legal act by nreg"""
+    # Decode URL-encoded characters
+    nreg = unquote(nreg)
+    act = db.query(LegalAct).filter(LegalAct.nreg == nreg).first()
+    if not act:
+        raise HTTPException(status_code=404, detail="Legal act not found")
+    return act
+
+
+@router.post("/{nreg:path}/process")
+async def process_legal_act(
+    nreg: str = Path(..., description="Номер реєстрації акту"),
+    background_tasks: BackgroundTasks = None,
+    db: Session = Depends(get_db)
+):
+    """Process a legal act (download, extract elements, sync to DBs)"""
+    # Decode URL-encoded characters
+    nreg = unquote(nreg)
+    
+    from app.core.database import SessionLocal
+    import asyncio
+    
+    async def process():
+        # Create new session for background task
+        bg_db = SessionLocal()
+        try:
+            bg_service = ProcessingService(bg_db)
+            await bg_service.process_legal_act(nreg)
+        finally:
+            bg_db.close()
+    
+    if background_tasks:
+        background_tasks.add_task(lambda: asyncio.run(process()))
+    else:
+        # If no background tasks, process synchronously (for testing)
+        import asyncio
+        asyncio.run(process())
+    
+    return {"message": f"Processing started for {nreg}"}

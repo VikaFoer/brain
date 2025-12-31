@@ -154,8 +154,9 @@ class OpenAIService:
                 "max_tokens": 8000  # GPT-5.2 Pro supports much larger responses
             }
             
-            # Add reasoning effort for GPT-5.2 Pro
-            if "gpt-5.2" in self.model.lower():
+            # Add reasoning effort only for models that support it (o1 series)
+            # Note: GPT-5.2-pro doesn't exist yet, and reasoning_effort is for o1 models
+            if "o1" in self.model.lower():
                 reasoning_effort = getattr(settings, 'OPENAI_REASONING_EFFORT', 'high')
                 api_params["reasoning_effort"] = reasoning_effort
             
@@ -349,8 +350,9 @@ class OpenAIService:
                 "max_tokens": 4000  # GPT-5.2 Pro supports up to 128k tokens in response
             }
             
-            # Add reasoning effort for GPT-5.2 Pro
-            if "gpt-5.2" in chat_model.lower():
+            # Add reasoning effort only for models that support it (o1 series)
+            # Note: GPT-5.2-pro doesn't exist yet, and reasoning_effort is for o1 models
+            if "o1" in chat_model.lower():
                 reasoning_effort = getattr(settings, 'OPENAI_REASONING_EFFORT', 'high')
                 api_params["reasoning_effort"] = reasoning_effort
             

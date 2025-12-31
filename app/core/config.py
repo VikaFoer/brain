@@ -8,9 +8,9 @@ from typing import Optional
 class Settings(BaseSettings):
     # OpenAI
     OPENAI_API_KEY: Optional[str] = None
-    OPENAI_MODEL: str = "gpt-5.2-pro"  # Latest model - GPT-5.2 Pro
-    OPENAI_CHAT_MODEL: str = "gpt-5.2-pro"  # Model specifically for chat (can be different from extraction)
-    OPENAI_REASONING_EFFORT: str = "high"  # Reasoning effort: medium, high, very_high (for GPT-5.2 Pro)
+    OPENAI_MODEL: str = "gpt-4o"  # Latest stable model - GPT-4o (GPT-5.2-pro doesn't exist yet)
+    OPENAI_CHAT_MODEL: str = "gpt-4o"  # Model specifically for chat (can be different from extraction)
+    OPENAI_REASONING_EFFORT: str = "high"  # Reasoning effort: medium, high, very_high (for o1 models only)
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-large"  # Embeddings model
     OPENAI_EMBEDDING_DIMENSIONS: int = 3072  # Dimensions for text-embedding-3-large (default: 3072, can be 256, 1024, 3072)
     

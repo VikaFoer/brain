@@ -10,12 +10,20 @@
     <link rel="stylesheet" href="/frontend/admin.css">
     <script>
         // Fallback if CSS doesn't load
-        if (!document.querySelector('link[href*="admin.css"]') || !getComputedStyle(document.body).getPropertyValue('--primary')) {
-            const link = document.createElement('link');
-            link.rel = 'stylesheet';
-            link.href = '/frontend/admin.css';
-            document.head.appendChild(link);
-        }
+        document.addEventListener('DOMContentLoaded', () => {
+            try {
+                const body = document.body;
+                if (body && (!document.querySelector('link[href*="admin.css"]') || !getComputedStyle(body).getPropertyValue('--primary'))) {
+                    const link = document.createElement('link');
+                    link.rel = 'stylesheet';
+                    link.href = '/frontend/admin.css';
+                    document.head.appendChild(link);
+                }
+            } catch (e) {
+                // Silently fail if body doesn't exist yet
+                console.debug('CSS fallback check skipped:', e);
+            }
+        });
     </script>
 </head>
 <body>

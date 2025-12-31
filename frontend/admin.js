@@ -50,7 +50,15 @@ function setupEventListeners() {
     document.getElementById('auto-download-btn').addEventListener('click', startAutoDownload);
     
     // Load Rada list button
-    document.getElementById('load-rada-list-btn').addEventListener('click', () => loadRadaActsList(true));
+    const loadRadaBtn = document.getElementById('load-rada-list-btn');
+    if (loadRadaBtn) {
+        loadRadaBtn.addEventListener('click', () => {
+            console.log('Load Rada button clicked');
+            loadRadaActsList(true);
+        });
+    } else {
+        console.error('load-rada-list-btn not found!');
+    }
 
     // Close modals
     document.getElementById('close-modal').addEventListener('click', closeDetailsModal);
@@ -296,17 +304,21 @@ async function loadRadaActsList(reset = true) {
         const loadingIndicator = document.getElementById('rada-loading-indicator');
         if (loadingIndicator) loadingIndicator.remove();
         
-        if (reset) {
+        if (reset && container) {
             container.innerHTML = `
                 <div class="empty-state">
                     <div class="empty-state-icon">❌</div>
                     <p>Помилка завантаження списку з Rada API</p>
                     <p class="error-detail">${error.message}</p>
+                    <p style="margin-top: 10px; font-size: 0.9rem; color: var(--text-muted);">
+                        Перевірте консоль браузера (F12) для деталей
+                    </p>
                 </div>
             `;
         }
     } finally {
         radaPagination.loading = false;
+        console.log('loadRadaActsList finished, loading:', radaPagination.loading);
     }
 }
 

@@ -31,9 +31,12 @@ async def startup_event():
     if is_sqlite:
         logger.warning("⚠️  WARNING: Using SQLite database!")
         logger.warning("⚠️  SQLite data will be LOST on Railway after each deploy!")
-        logger.warning("⚠️  Please add PostgreSQL service in Railway Dashboard!")
-        logger.warning("⚠️  See FIX_DATABASE_LOSS.md for instructions")
+        logger.warning("⚠️  DATABASE_URL is not set or not connected!")
+        logger.warning("⚠️  SOLUTION: In Railway Dashboard → 'brain' service → Variables → Add DATABASE_URL")
+        logger.warning("⚠️  Use Reference to connect from PostgreSQL service → DATABASE_URL")
+        logger.warning("⚠️  See FIX_SQLITE_NOW.md for step-by-step instructions")
         print("⚠️  WARNING: SQLite will lose data on Railway!")
+        print("⚠️  DATABASE_URL is not connected! See FIX_SQLITE_NOW.md")
     else:
         logger.info("✔ Using PostgreSQL database (persistent)")
         print("✔ Using PostgreSQL database (persistent)")

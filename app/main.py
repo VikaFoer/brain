@@ -23,8 +23,9 @@ async def startup_event():
     """Create database tables if they don't exist"""
     try:
         # Check if database is accessible
+        from sqlalchemy import text
         with engine.connect() as conn:
-            conn.execute("SELECT 1")
+            conn.execute(text("SELECT 1"))
         
         # Create tables
         Base.metadata.create_all(bind=engine)

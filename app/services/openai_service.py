@@ -148,13 +148,16 @@ class OpenAIService:
                     {"role": "user", "content": user_prompt}
                 ],
                 response_format={"type": "json_object"},
-                temperature=0.3
+                temperature=0.2,  # Lower temperature for more consistent extraction
+                max_tokens=4000  # Allow more tokens for response to capture all elements
             )
             
             result_text = response.choices[0].message.content
             result = json.loads(result_text)
             
-            logger.info(f"Successfully extracted elements from act: {act_title}")
+            # Log how many elements were extracted
+            elements_count = len(result.get("elements", []))
+            logger.info(f"Successfully extracted {elements_count} elements from act: {act_title}")
             return result
             
         except json.JSONDecodeError as e:

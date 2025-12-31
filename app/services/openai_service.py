@@ -330,11 +330,13 @@ class OpenAIService:
         messages.append({"role": "user", "content": user_prompt})
 
         try:
+            # Use chat-specific model if available, otherwise use default
+            chat_model = getattr(self, 'chat_model', self.model)
             response = await self.client.chat.completions.create(
-                model=self.model,
+                model=chat_model,
                 messages=messages,
                 temperature=0.7,
-                max_tokens=1500
+                max_tokens=2000  # Increased for better responses
             )
             
             return response.choices[0].message.content

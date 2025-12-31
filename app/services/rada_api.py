@@ -394,10 +394,28 @@ class RadaAPIService:
                             logger.warning(f"No documents found on {endpoint}")
                             # Count total links found
                             all_links = soup.find_all('a', href=True)
-                            logger.debug(f"Total <a> tags found: {len(all_links)}")
+                            logger.info(f"Total <a> tags found: {len(all_links)}")
                             # Log sample hrefs
                             sample_hrefs = [link.get('href', '')[:100] for link in all_links[:10]]
-                            logger.debug(f"Sample hrefs: {sample_hrefs}")
+                            logger.info(f"Sample hrefs: {sample_hrefs}")
+                            
+                            # Try to find any pattern that might contain NREG
+                            # Look for common patterns in the HTML
+                            import re
+                            # Try to find any text that looks like NREG (e.g., "254к/96-ВР", "123/2023")
+                            nreg_patterns = [
+                                r'\b\d+[кК]?/\d+-?[ВВРР]?\b',  # Pattern like 254к/96-ВР
+                                r'\b\d+/\d+\b',  # Simple pattern like 123/2023
+                            ]
+                            for pattern in nreg_patterns:
+                                matches = re.findall(pattern, response.text)
+                                if matches:
+                                    logger.info(f"Found potential NREG patterns: {matches[:10]}")
+                                    break
+                            
+                            # Log a snippet of the HTML to see structure
+                            html_snippet = response.text[:2000] if len(response.text) > 2000 else response.text
+                            logger.debug(f"HTML snippet (first 2000 chars): {html_snippet}")
                             
                             # If this is the first endpoint and we got HTML, try pagination
                             if endpoint == "/laws/main/r" and len(response.text) > 1000:
@@ -414,6 +432,20 @@ class RadaAPIService:
                 logger.error("1. The website structure has changed")
                 logger.error("2. Rate limiting is blocking requests")
                 logger.error("3. Authentication is required")
+                
+                # Fallback: Try to use get_new_documents_list as alternative
+                logger.info("Trying fallback: get_new_documents_list (new documents)")
+                try:
+                    new_nregs = await self.get_new_documents_list(days=365)  # Get all new from last year
+                    if new_nregs:
+                        logger.info(f"Fallback successful: found {len(new_nregs)} documents from new documents list")
+                        # Apply limit if specified
+                        if limit and len(new_nregs) > limit:
+                            new_nregs = new_nregs[:limit]
+                        return new_nregs
+                except Exception as e:
+                    logger.error(f"Fallback also failed: {e}")
+                
                 return []
             
             # Remove duplicates but preserve order (as they appear on the site)

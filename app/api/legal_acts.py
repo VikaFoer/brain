@@ -299,7 +299,18 @@ async def auto_download_acts(
             
             if not all_nregs:
                 logger.error("No documents found from Rada API")
-                return
+                logger.info("Trying alternative: get new documents list")
+                # Fallback: try to get new documents instead
+                try:
+                    all_nregs = await rada_api.get_new_documents_list(days=365)
+                    if all_nregs:
+                        logger.info(f"Found {len(all_nregs)} documents using new documents list")
+                    else:
+                        logger.error("Both methods failed to get document list")
+                        return
+                except Exception as e:
+                    logger.error(f"Fallback method also failed: {e}")
+                    return
             
             # Фільтрувати вже оброблені (зберігаючи порядок)
             processed_nregs = {act.nreg for act in bg_db.query(LegalAct.nreg).filter(LegalAct.is_processed == True).all()}

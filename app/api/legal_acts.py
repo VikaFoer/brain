@@ -106,6 +106,7 @@ async def get_all_nregs(
 
 
 @router.post("/initialize-categories")
+@router.get("/initialize-categories")  # Also allow GET for browser access
 async def initialize_categories(db: Session = Depends(get_db)):
     """Initialize categories in database"""
     try:

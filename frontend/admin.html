@@ -7,7 +7,16 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="admin.css">
+    <link rel="stylesheet" href="/frontend/admin.css">
+    <script>
+        // Fallback if CSS doesn't load
+        if (!document.querySelector('link[href*="admin.css"]') || !getComputedStyle(document.body).getPropertyValue('--primary')) {
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = '/frontend/admin.css';
+            document.head.appendChild(link);
+        }
+    </script>
 </head>
 <body>
     <div class="container">
@@ -121,6 +130,6 @@
         </div>
     </div>
 
-    <script src="admin.js"></script>
+    <script src="/frontend/admin.js"></script>
 </body>
 </html>

@@ -8,6 +8,13 @@ let acts = [];
 let categories = [];
 let filteredActs = [];
 let radaActsList = [];
+let radaPagination = {
+    skip: 0,
+    limit: 100,
+    hasMore: false,
+    loading: false,
+    total: 0
+};
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -43,7 +50,7 @@ function setupEventListeners() {
     document.getElementById('auto-download-btn').addEventListener('click', startAutoDownload);
     
     // Load Rada list button
-    document.getElementById('load-rada-list-btn').addEventListener('click', loadRadaActsList);
+    document.getElementById('load-rada-list-btn').addEventListener('click', () => loadRadaActsList(true));
 
     // Close modals
     document.getElementById('close-modal').addEventListener('click', closeDetailsModal);

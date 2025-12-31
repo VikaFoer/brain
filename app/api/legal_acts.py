@@ -264,7 +264,8 @@ async def get_legal_act_details(
 
 @router.get("/rada-list")
 async def get_rada_acts_list(
-    limit: Optional[int] = None,
+    skip: int = 0,
+    limit: int = 100,
     db: Session = Depends(get_db)
 ):
     """
@@ -313,12 +314,19 @@ async def get_rada_acts_list(
         loaded_count = len([a for a in acts_list if a["in_database"]])
         processed_count = len([a for a in acts_list if a["is_processed"]])
         
+        # Apply pagination
+        total_count = len(acts_list)
+        paginated_acts = acts_list[skip:skip + limit]
+        
         return {
-            "total": len(acts_list),
+            "total": total_count,
             "loaded": loaded_count,
             "processed": processed_count,
-            "not_loaded": len(acts_list) - loaded_count,
-            "acts": acts_list
+            "not_loaded": total_count - loaded_count,
+            "skip": skip,
+            "limit": limit,
+            "has_more": skip + limit < total_count,
+            "acts": paginated_acts
         }
         
     except Exception as e:

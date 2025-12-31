@@ -843,13 +843,16 @@ header p {
     color: var(--primary-light);
 }
 
+.rada-list {
+    max-height: 70vh;
+    overflow-y: auto;
+    padding: 8px;
+}
+
 .rada-list-container {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
     gap: 16px;
-    max-height: 70vh;
-    overflow-y: auto;
-    padding: 8px;
 }
 
 .rada-act-item {

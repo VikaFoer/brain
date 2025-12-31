@@ -12,8 +12,18 @@ let simulation = null;
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
+    console.log('Initializing app...');
     loadCategories();
     setupEventListeners();
+    
+    // Ensure chat tab is accessible
+    const chatTab = document.getElementById('chat-tab');
+    const chatBtn = document.querySelector('[data-tab="chat"]');
+    if (chatTab && chatBtn) {
+        console.log('Chat tab and button found');
+    } else {
+        console.error('Chat tab or button not found!', { chatTab, chatBtn });
+    }
 });
 
 // Event listeners
@@ -264,6 +274,8 @@ function renderStatistics(stats) {
 
 // Switch tabs
 function switchTab(tab) {
+    console.log('Switching to tab:', tab);
+    
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.classList.remove('active');
     });
@@ -271,8 +283,16 @@ function switchTab(tab) {
         content.classList.remove('active');
     });
 
-    document.querySelector(`[data-tab="${tab}"]`).classList.add('active');
-    document.getElementById(`${tab}-tab`).classList.add('active');
+    const tabBtn = document.querySelector(`[data-tab="${tab}"]`);
+    const tabContent = document.getElementById(`${tab}-tab`);
+    
+    if (tabBtn && tabContent) {
+        tabBtn.classList.add('active');
+        tabContent.classList.add('active');
+        console.log('Tab switched successfully');
+    } else {
+        console.error('Tab elements not found!', { tabBtn, tabContent, tab });
+    }
 
     // Enable/disable chat input based on selection
     const chatInput = document.getElementById('chat-input');

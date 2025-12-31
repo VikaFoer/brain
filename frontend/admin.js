@@ -328,23 +328,101 @@ async function showActDetails(nreg) {
     }
 }
 
+// Check if act exists on Rada website
+async function checkActExists(nreg) {
+    try {
+        const encodedNreg = nreg.split('/').map(part => encodeURIComponent(part)).join('/');
+        const response = await fetch(`${API_BASE}/legal-acts/${encodedNreg}/check`);
+        const data = await response.json();
+        return data;
+    } catch (error) {
+        console.error('Error checking act:', error);
+        return {
+            exists: false,
+            message: 'Помилка при перевірці акту'
+        };
+    }
+}
+
 // Process act
 async function processAct(nreg) {
-    if (!confirm(`Обробити акт "${nreg}"?`)) return;
+    // First check if act exists
+    const statusDiv = document.createElement('div');
+    statusDiv.className = 'status-message';
+    statusDiv.style.cssText = 'position: fixed; top: 20px; right: 20px; padding: 16px; border-radius: 8px; z-index: 10000; max-width: 400px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);';
+    statusDiv.innerHTML = '<div style="display: flex; align-items: center; gap: 8px;"><span>🔍</span> Перевірка акту на сайті data.rada.gov.ua...</div>';
+    document.body.appendChild(statusDiv);
+    
+    const checkResult = await checkActExists(nreg);
+    
+    if (!checkResult.exists) {
+        statusDiv.style.background = 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)';
+        statusDiv.style.color = 'white';
+        statusDiv.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span>❌</span>
+                <div>
+                    <div style="font-weight: 600; margin-bottom: 4px;">Акт не знайдено</div>
+                    <div style="font-size: 0.9rem; opacity: 0.9;">${checkResult.message}</div>
+                </div>
+            </div>
+        `;
+        setTimeout(() => statusDiv.remove(), 5000);
+        return;
+    }
+    
+    statusDiv.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+    statusDiv.style.color = 'white';
+    statusDiv.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 8px;">
+            <span>✅</span>
+            <div>
+                <div style="font-weight: 600; margin-bottom: 4px;">Акт знайдено!</div>
+                <div style="font-size: 0.9rem; opacity: 0.9;">${checkResult.title || nreg}</div>
+            </div>
+        </div>
+    `;
+    
+    if (!confirm(`Акт знайдено на сайті data.rada.gov.ua!\n\n"${checkResult.title || nreg}"\n\nОбробити акт "${nreg}"?`)) {
+        statusDiv.remove();
+        return;
+    }
+    
+    statusDiv.innerHTML = '<div style="display: flex; align-items: center; gap: 8px;"><span>⚙️</span> Запуск обробки...</div>';
+    statusDiv.style.background = 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)';
 
     try {
-        // Encode NREG but preserve / characters for path segments
         const encodedNreg = nreg.split('/').map(part => encodeURIComponent(part)).join('/');
         const response = await fetch(`${API_BASE}/legal-acts/${encodedNreg}/process`, {
             method: 'POST'
         });
         const data = await response.json();
         
-        alert(`Обробка запущена: ${data.message}`);
-        setTimeout(() => loadActs(), 2000);
+        statusDiv.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+        statusDiv.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span>✅</span>
+                <div>
+                    <div style="font-weight: 600; margin-bottom: 4px;">Обробка запущена</div>
+                    <div style="font-size: 0.9rem; opacity: 0.9;">${data.message}</div>
+                </div>
+            </div>
+        `;
+        
+        setTimeout(() => {
+            statusDiv.remove();
+            loadActs();
+        }, 3000);
     } catch (error) {
         console.error('Error processing act:', error);
-        alert('Помилка при запуску обробки');
+        statusDiv.style.background = 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)';
+        statusDiv.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span>❌</span>
+                <div style="font-weight: 600;">Помилка при запуску обробки</div>
+            </div>
+        `;
+        setTimeout(() => statusDiv.remove(), 5000);
     }
 }
 
@@ -358,7 +436,38 @@ async function processNewAct() {
 
     const statusDiv = document.getElementById('process-status');
     statusDiv.classList.add('active', 'info');
-    statusDiv.textContent = 'Запуск обробки...';
+    statusDiv.innerHTML = '<div style="display: flex; align-items: center; gap: 8px;"><span>🔍</span> Перевірка акту на сайті data.rada.gov.ua...</div>';
+
+    // First check if act exists
+    const checkResult = await checkActExists(nreg);
+    
+    if (!checkResult.exists) {
+        statusDiv.classList.remove('info');
+        statusDiv.classList.add('error');
+        statusDiv.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span>❌</span>
+                <div>
+                    <div style="font-weight: 600; margin-bottom: 4px;">Акт не знайдено</div>
+                    <div style="font-size: 0.9rem; opacity: 0.9;">${checkResult.message}</div>
+                </div>
+            </div>
+        `;
+        return;
+    }
+    
+    statusDiv.classList.remove('error');
+    statusDiv.classList.add('info');
+    statusDiv.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 8px;">
+            <span>✅</span>
+            <div>
+                <div style="font-weight: 600; margin-bottom: 4px;">Акт знайдено!</div>
+                <div style="font-size: 0.9rem; opacity: 0.9;">${checkResult.title || nreg}</div>
+                <div style="font-size: 0.85rem; margin-top: 8px; opacity: 0.8;">Запуск обробки...</div>
+            </div>
+        </div>
+    `;
 
     try {
         // Encode NREG but preserve / characters for path segments
@@ -370,7 +479,15 @@ async function processNewAct() {
         
         statusDiv.classList.remove('info');
         statusDiv.classList.add('success');
-        statusDiv.textContent = `✅ ${data.message}`;
+        statusDiv.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span>✅</span>
+                <div>
+                    <div style="font-weight: 600; margin-bottom: 4px;">Обробка запущена</div>
+                    <div style="font-size: 0.9rem; opacity: 0.9;">${data.message}</div>
+                </div>
+            </div>
+        `;
         
         document.getElementById('nreg-input').value = '';
         
@@ -382,7 +499,12 @@ async function processNewAct() {
         console.error('Error processing act:', error);
         statusDiv.classList.remove('info');
         statusDiv.classList.add('error');
-        statusDiv.textContent = '❌ Помилка при запуску обробки';
+        statusDiv.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span>❌</span>
+                <div style="font-weight: 600;">Помилка при запуску обробки</div>
+            </div>
+        `;
     }
 }
 

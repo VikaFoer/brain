@@ -157,6 +157,62 @@ async def get_legal_act_details(
     )
 
 
+@router.get("/{nreg:path}/check")
+async def check_legal_act_exists(
+    nreg: str = Path(..., description="Номер реєстрації акту"),
+    db: Session = Depends(get_db)
+):
+    """Check if legal act exists on Rada website"""
+    # Decode URL-encoded characters
+    nreg = unquote(nreg)
+    
+    from app.services.rada_api import rada_api
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
+    # Check if already in database
+    act = db.query(LegalAct).filter(LegalAct.nreg == nreg).first()
+    if act:
+        return {
+            "exists": True,
+            "in_database": True,
+            "is_processed": act.is_processed,
+            "title": act.title,
+            "message": "Акт знайдено в базі даних"
+        }
+    
+    # Check on Rada website
+    try:
+        document_json = await rada_api.get_document_json(nreg)
+        if document_json:
+            title = document_json.get("title", nreg)
+            return {
+                "exists": True,
+                "in_database": False,
+                "is_processed": False,
+                "title": title,
+                "message": f"Акт знайдено на сайті data.rada.gov.ua: {title}"
+            }
+        else:
+            return {
+                "exists": False,
+                "in_database": False,
+                "is_processed": False,
+                "title": None,
+                "message": f"Акт {nreg} не знайдено на сайті data.rada.gov.ua"
+            }
+    except Exception as e:
+        logger.error(f"Error checking act {nreg}: {e}")
+        return {
+            "exists": False,
+            "in_database": False,
+            "is_processed": False,
+            "title": None,
+            "message": f"Помилка при перевірці акту: {str(e)}"
+        }
+
+
 @router.post("/{nreg:path}/process")
 async def process_legal_act(
     nreg: str = Path(..., description="Номер реєстрації акту"),

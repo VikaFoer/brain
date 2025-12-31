@@ -14,7 +14,10 @@ class OpenAIService:
     """Service for extracting set elements from legal acts using OpenAI"""
     
     def __init__(self):
-        self.client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        if not settings.OPENAI_API_KEY:
+            self.client = None
+        else:
+            self.client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
         self.model = settings.OPENAI_MODEL
     
     async def extract_set_elements(
@@ -156,6 +159,8 @@ class OpenAIService:
         act2_text: str
     ) -> Dict[str, Any]:
         """Analyze relations between two legal acts"""
+        if not self.client:
+            raise RuntimeError("OpenAI API key is not configured.")
         
         system_prompt = """Ти експерт з аналізу зв'язків між нормативно-правовими актами.
 Визнач тип зв'язку між двома актами та його характеристику."""
@@ -212,6 +217,8 @@ class OpenAIService:
         context: Dict[str, Any]
     ) -> str:
         """Chat about relations between sets using context"""
+        if not self.client:
+            raise RuntimeError("OpenAI API key is not configured.")
         
         system_prompt = """Ти експерт з аналізу нормативно-правових актів України та їх зв'язків.
 Ти допомагаєш користувачам розуміти зв'язки між різними категоріями законодавства та їх елементами."""

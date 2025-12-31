@@ -18,10 +18,14 @@ class Neo4jDriver:
     
     def __init__(self):
         if self._driver is None:
-            self._driver = GraphDatabase.driver(
-                settings.NEO4J_URI,
-                auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD)
-            )
+            if settings.NEO4J_PASSWORD:
+                self._driver = GraphDatabase.driver(
+                    settings.NEO4J_URI,
+                    auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD)
+                )
+            else:
+                # Якщо Neo4j не налаштовано, створюємо заглушку
+                self._driver = None
     
     def get_driver(self):
         return self._driver
@@ -46,5 +50,8 @@ neo4j_driver = Neo4jDriver()
 
 def get_neo4j_session():
     """Get Neo4j session"""
-    return neo4j_driver.get_driver().session()
+    driver = neo4j_driver.get_driver()
+    if driver is None:
+        raise RuntimeError("Neo4j is not configured. Please set NEO4J_URI and NEO4J_PASSWORD environment variables.")
+    return driver.session()
 

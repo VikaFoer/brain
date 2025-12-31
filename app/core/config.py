@@ -7,7 +7,7 @@ from typing import Optional
 
 class Settings(BaseSettings):
     # OpenAI
-    OPENAI_API_KEY: str
+    OPENAI_API_KEY: Optional[str] = None
     OPENAI_MODEL: str = "gpt-4-turbo-preview"
     
     # Rada API
@@ -17,17 +17,17 @@ class Settings(BaseSettings):
     RADA_API_DELAY: float = 6.0  # секунд між запитами
     
     # PostgreSQL
-    DATABASE_URL: str
+    DATABASE_URL: Optional[str] = None
     
     # Neo4j
     NEO4J_URI: str = "bolt://localhost:7687"
     NEO4J_USER: str = "neo4j"
-    NEO4J_PASSWORD: str
+    NEO4J_PASSWORD: Optional[str] = None
     
     # Application
     APP_NAME: str = "Legal Graph System"
-    DEBUG: bool = True
-    SECRET_KEY: str
+    DEBUG: bool = False
+    SECRET_KEY: str = "change-me-in-production"
     
     class Config:
         env_file = ".env"

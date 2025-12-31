@@ -7,8 +7,9 @@ from sqlalchemy.orm import sessionmaker
 from app.core.config import settings
 
 # PostgreSQL
+database_url = settings.DATABASE_URL or "sqlite:///./legal_db.db"
 engine = create_engine(
-    settings.DATABASE_URL,
+    database_url,
     pool_pre_ping=True,
     pool_size=10,
     max_overflow=20

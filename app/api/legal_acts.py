@@ -1,7 +1,7 @@
 """
 API endpoints for legal acts
 """
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Path
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Path, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from urllib.parse import unquote
@@ -696,19 +696,19 @@ async def process_legal_act(
         # Create new session for background task
         bg_db = SessionLocal()
         try:
-            # Check if already processed
+            # Check if already processed (unless force_reprocess)
             existing_act = bg_db.query(LegalAct).filter(LegalAct.nreg == nreg).first()
-            if existing_act and existing_act.is_processed:
+            if existing_act and existing_act.is_processed and not force_reprocess:
                 logger.info(f"Act {nreg} already processed (is_processed=True), skipping. Use ?force_reprocess=true to reprocess")
                 return
             
-            logger.info(f"Starting background processing for {nreg}")
+            logger.info(f"Starting background processing for {nreg} (force_reprocess={force_reprocess})")
             if existing_act:
                 logger.info(f"Act {nreg} exists: is_processed={existing_act.is_processed}, has_text={existing_act.text is not None}")
             else:
                 logger.info(f"Act {nreg} not found in database, will download from Rada API")
             bg_service = ProcessingService(bg_db)
-            result = await bg_service.process_legal_act(nreg)
+            result = await bg_service.process_legal_act(nreg, force_reprocess=force_reprocess)
             if result:
                 logger.info(f"Successfully processed {nreg}")
             else:

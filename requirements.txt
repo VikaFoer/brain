@@ -21,8 +21,8 @@ openai==1.3.7
 
 # Weights & Biases for experiment tracking and monitoring
 wandb==0.16.0
-# W&B Weave for LLM tracing and evaluation
-weave==0.0.1
+# W&B Weave for LLM tracing and evaluation (optional)
+weave>=0.52.0
 
 # Utils
 python-multipart==0.0.6

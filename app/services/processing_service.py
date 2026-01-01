@@ -157,7 +157,8 @@ class ProcessingService:
         
         # Extract elements using OpenAI
         if text:
-            logger.info(f"Extracting elements from {nreg} using OpenAI...")
+            text_length = len(text) if text else 0
+            logger.info(f"Extracting elements from {nreg} using OpenAI... (text length: {text_length} chars)")
             try:
                 extracted = await openai_service.extract_set_elements(
                     legal_act_text=text,

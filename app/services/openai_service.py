@@ -606,6 +606,9 @@ class OpenAIService:
                 "metadata": {...}
             }
         """
+        text_length = len(legal_act_text) if legal_act_text else 0
+        logger.info(f"extract_set_elements called for '{act_title}' (text length: {text_length} chars)")
+        
         if not self.client:
             logger.warning("OpenAI API key is not configured. Cannot extract elements.")
             return {

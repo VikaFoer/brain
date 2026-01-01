@@ -670,6 +670,7 @@ async def auto_download_acts(
 @router.post("/{nreg:path}/process")
 async def process_legal_act(
     nreg: str = Path(..., description="Номер реєстрації акту"),
+    force_reprocess: bool = Query(False, description="Force reprocess even if already processed"),
     background_tasks: BackgroundTasks = None,
     db: Session = Depends(get_db)
 ):

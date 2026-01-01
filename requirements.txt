@@ -19,6 +19,11 @@ lxml==4.9.3
 # OpenAI
 openai==1.3.7
 
+# Weights & Biases for experiment tracking and monitoring
+wandb==0.16.0
+# W&B Weave for LLM tracing and evaluation
+weave==0.0.1
+
 # Utils
 python-multipart==0.0.6
 python-jose[cryptography]==3.3.0

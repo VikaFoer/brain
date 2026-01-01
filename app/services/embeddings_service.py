@@ -225,3 +225,6 @@ class EmbeddingsService:
 # Singleton instance
 embeddings_service = EmbeddingsService()
 
+
+
+

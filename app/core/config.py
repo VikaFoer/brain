@@ -14,6 +14,19 @@ class Settings(BaseSettings):
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-large"  # Embeddings model
     OPENAI_EMBEDDING_DIMENSIONS: int = 3072  # Dimensions for text-embedding-3-large (default: 3072, can be 256, 1024, 3072)
     
+    # OpenAI Token Limits (based on model capabilities and organization limits)
+    # GPT-4o supports up to 16384 output tokens (max_tokens parameter)
+    # Adjust these based on your organization's rate limits at: https://platform.openai.com/settings/organization/limits
+    OPENAI_MAX_RESPONSE_TOKENS: int = 16384  # Max tokens for extraction tasks (GPT-4o limit: 16384)
+    OPENAI_MAX_CHAT_TOKENS: int = 8192  # Max tokens for chat responses (can be up to 16384 for GPT-4o)
+    
+    # Weights & Biases (W&B) Configuration
+    # Get your API key from: https://wandb.ai/settings
+    WANDB_API_KEY: Optional[str] = None
+    WANDB_PROJECT: str = "legal-graph-system"  # Project name in W&B
+    WANDB_ENABLED: bool = True  # Enable/disable W&B logging
+    WANDB_ENTITY: Optional[str] = None  # W&B entity/team name (optional)
+    
     # Rada API
     RADA_API_TOKEN: Optional[str] = None
     RADA_API_BASE_URL: str = "https://data.rada.gov.ua"

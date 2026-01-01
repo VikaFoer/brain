@@ -119,8 +119,9 @@ class EmbeddingsService:
                 "input": texts
             }
             
-            # Add dimensions if specified (for text-embedding-3-large)
-            if self.dimensions:
+            # Add dimensions if specified (for text-embedding-3-large and text-embedding-3-small)
+            # Only text-embedding-3-* models support dimensions parameter
+            if self.dimensions and ("text-embedding-3" in self.model):
                 api_params["dimensions"] = self.dimensions
             
             # Use batch API if requested and multiple texts

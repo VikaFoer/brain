@@ -90,8 +90,47 @@ async def get_legal_acts(
             # Column might already exist or migration failed, continue
             logger.debug(f"Migration check: {migration_error}")
         
-        # Get acts from database (simple query without new fields to avoid SQL errors)
-        # Use select only existing columns to avoid issues with new fields
+        # Get acts from database
+        # First ensure migration is complete by checking if new columns exist
+        try:
+            from sqlalchemy import inspect, text
+            inspector = inspect(engine)
+            columns = [col['name'] for col in inspector.get_columns('legal_acts')]
+            
+            # If new columns don't exist, use explicit column selection to avoid errors
+            if 'dataset_id' not in columns or 'dataset_metadata' not in columns or 'source' not in columns:
+                # Use explicit column selection without new fields
+                from sqlalchemy import select, column
+                acts = db.execute(
+                    select(
+                        LegalAct.id,
+                        LegalAct.nreg,
+                        LegalAct.title,
+                        LegalAct.is_processed,
+                        LegalAct.document_type,
+                        LegalAct.status,
+                        LegalAct.date_acceptance,
+                        LegalAct.date_publication
+                    ).order_by(LegalAct.created_at.desc()).limit(100)
+                ).all()
+                # Convert to LegalAct-like objects
+                result = []
+                for row in acts:
+                    result.append(LegalActResponse(
+                        id=row.id,
+                        nreg=row.nreg,
+                        title=row.title,
+                        is_processed=row.is_processed,
+                        document_type=row.document_type,
+                        status=row.status,
+                        date_acceptance=row.date_acceptance.isoformat() if row.date_acceptance else None,
+                        date_publication=row.date_publication.isoformat() if row.date_publication else None
+                    ))
+                return result
+        except Exception as migration_check_error:
+            logger.debug(f"Migration check failed: {migration_check_error}, using standard query")
+        
+        # Standard query if migration is complete
         acts = db.query(LegalAct).order_by(LegalAct.created_at.desc()).limit(100).all()
         
         # Convert to response format with proper date formatting

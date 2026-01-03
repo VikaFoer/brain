@@ -68,6 +68,18 @@ function setupEventListeners() {
         console.error('sync-all-rada-btn not found!');
     }
     
+    // Download active acts button
+    const downloadActiveBtn = document.getElementById('download-active-acts-btn');
+    if (downloadActiveBtn) {
+        downloadActiveBtn.addEventListener('click', () => downloadActiveActs(false));
+    }
+    
+    // Download active acts and process button
+    const downloadActiveAndProcessBtn = document.getElementById('download-active-and-process-btn');
+    if (downloadActiveAndProcessBtn) {
+        downloadActiveAndProcessBtn.addEventListener('click', () => downloadActiveActs(true));
+    }
+    
     // Process all overnight button
     const processAllOvernightBtn = document.getElementById('process-all-overnight-btn');
     if (processAllOvernightBtn) {
@@ -75,6 +87,28 @@ function setupEventListeners() {
     } else {
         console.error('process-all-overnight-btn not found!');
     }
+    
+    // Auto-refresh Rada list when tab is active
+    let radaListRefreshInterval = null;
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const tab = e.target.dataset.tab;
+            if (tab === 'rada-list') {
+                // Start auto-refresh when tab is active
+                if (!radaListRefreshInterval) {
+                    radaListRefreshInterval = setInterval(() => {
+                        loadRadaActsList(false); // Don't reset, just update
+                    }, 10000); // Refresh every 10 seconds
+                }
+            } else {
+                // Stop auto-refresh when tab is not active
+                if (radaListRefreshInterval) {
+                    clearInterval(radaListRefreshInterval);
+                    radaListRefreshInterval = null;
+                }
+            }
+        });
+    });
 
     // Close modals
     document.getElementById('close-modal').addEventListener('click', closeDetailsModal);

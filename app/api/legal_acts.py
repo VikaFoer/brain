@@ -363,18 +363,37 @@ async def get_rada_acts_list(
     db: Session = Depends(get_db)
 ):
     """
-    Отримати список всіх НПА з бази даних
+    Отримати список всіх НПА з Rada API зі статусами
     Повертає список NREG з інформацією про те, які вже завантажені та оброблені
     """
     import logging
+    from app.services.rada_api import rada_api
     
     logger = logging.getLogger(__name__)
     
     try:
-        # Get all NREGs from database (already loaded from Rada)
-        all_acts = db.query(LegalAct).order_by(LegalAct.nreg).all()
+        # Get all NREGs from Rada API (try open data first, then fallback)
+        all_nregs = []
+        try:
+            logger.info("Trying to get NREGs from open data portal...")
+            all_nregs = await rada_api.get_all_nregs_from_open_data()
+            if all_nregs:
+                logger.info(f"Got {len(all_nregs)} NREGs from open data portal")
+        except Exception as e:
+            logger.warning(f"Open data API failed: {e}, trying fallback...")
         
-        if not all_acts:
+        if not all_nregs:
+            # Fallback: get from database if available, or try standard method
+            db_acts = db.query(LegalAct.nreg).all()
+            if db_acts:
+                all_nregs = [act[0] for act in db_acts]
+                logger.info(f"Using {len(all_nregs)} NREGs from database")
+            else:
+                # Try standard method (but this might be slow)
+                logger.info("Trying standard method to get NREGs...")
+                all_nregs = await rada_api.get_all_documents_list(limit=1000)  # Limit for initial load
+        
+        if not all_nregs:
             return {
                 "total": 0,
                 "loaded": 0,
@@ -384,21 +403,36 @@ async def get_rada_acts_list(
                 "limit": limit,
                 "has_more": False,
                 "acts": [],
-                "message": "Список НПА порожній. Натисніть 'Завантажити всі НПА' для отримання переліку."
+                "message": "Не вдалося отримати список НПА з Rada API. Спробуйте пізніше або натисніть 'Завантажити всі НПА'."
             }
+        
+        # Get existing acts from database
+        existing_acts = {act.nreg: act for act in db.query(LegalAct).all()}
         
         # Build response with status for each NREG
         acts_list = []
-        for act in all_acts:
-            acts_list.append({
-                "nreg": act.nreg,
-                "title": act.title if act.title else act.nreg,
-                "in_database": True,  # All acts in DB are loaded
-                "is_processed": act.is_processed if act.is_processed else False,
-                "status": "processed" if act.is_processed else "loaded"
-            })
+        for nreg in all_nregs:
+            act = existing_acts.get(nreg)
+            if act:
+                acts_list.append({
+                    "nreg": nreg,
+                    "title": act.title if act.title else nreg,
+                    "in_database": True,
+                    "is_processed": act.is_processed if act.is_processed else False,
+                    "status": act.status,
+                    "status_label": "✅ Оброблено" if act.is_processed else "📥 Завантажено"
+                })
+            else:
+                acts_list.append({
+                    "nreg": nreg,
+                    "title": nreg,
+                    "in_database": False,
+                    "is_processed": False,
+                    "status": None,
+                    "status_label": "❌ Не завантажено"
+                })
         
-        loaded_count = len(acts_list)
+        loaded_count = len([a for a in acts_list if a["in_database"]])
         processed_count = len([a for a in acts_list if a["is_processed"]])
         
         # Apply pagination
@@ -409,7 +443,7 @@ async def get_rada_acts_list(
             "total": total_count,
             "loaded": loaded_count,
             "processed": processed_count,
-            "not_loaded": 0,  # All are in DB
+            "not_loaded": total_count - loaded_count,
             "skip": skip,
             "limit": limit,
             "has_more": skip + limit < total_count,

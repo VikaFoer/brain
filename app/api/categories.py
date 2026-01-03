@@ -4,12 +4,14 @@ API endpoints for categories
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
+import logging
 from app.core.database import get_db
 from app.models.category import Category
 from app.services.neo4j_service import neo4j_service
 from pydantic import BaseModel
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class CategoryResponse(BaseModel):
@@ -49,8 +51,6 @@ async def get_categories(db: Session = Depends(get_db)):
         categories = db.query(Category).all()
         return categories
     except Exception as e:
-        import logging
-        logger = logging.getLogger(__name__)
         logger.error(f"Error getting categories: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,

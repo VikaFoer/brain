@@ -15,6 +15,7 @@ let radaPagination = {
     loading: false,
     total: 0
 };
+let radaListRefreshInterval = null; // Global variable for auto-refresh interval
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -95,7 +96,6 @@ function setupEventListeners() {
     }
     
     // Auto-refresh Rada list when tab is active
-    let radaListRefreshInterval = null;
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
             const tab = e.target.dataset.tab;

@@ -13,6 +13,7 @@ class Category(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(500), nullable=False, unique=True, index=True)
+    code = Column(Integer, nullable=True, index=True)  # Код класифікації (номер категорії)
     description = Column(Text, nullable=True)
     element_count = Column(Integer, default=0)  # Кількість елементів множини
     created_at = Column(DateTime(timezone=True), server_default=func.now())

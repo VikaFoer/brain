@@ -354,12 +354,23 @@ class ProcessingService:
             ("Не визначено", 2860)
         ]
         
-        for name, count in categories_data:
+        for item in categories_data:
+            # Support both old format (name, count) and new format (code, name, count)
+            if len(item) == 2:
+                name, count = item
+                code = None
+            elif len(item) == 3:
+                code, name, count = item
+            else:
+                continue
+            
             category = self.db.query(Category).filter(Category.name == name).first()
             if not category:
-                category = Category(name=name, element_count=count)
+                category = Category(name=name, code=code, element_count=count)
                 self.db.add(category)
             else:
+                if code is not None:
+                    category.code = code
                 category.element_count = count
         
         self.db.commit()

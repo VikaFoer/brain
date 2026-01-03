@@ -1,9 +1,9 @@
 """
 API endpoints for legal acts
 """
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Path, Query
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Path, Query, Body
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from urllib.parse import unquote
 from app.core.database import get_db
 from app.models.legal_act import LegalAct
@@ -105,6 +105,58 @@ async def initialize_categories(db: Session = Depends(get_db)):
         raise HTTPException(
             status_code=500,
             detail=f"Error initializing categories: {error_msg}"
+        )
+
+
+@router.post("/import-categories")
+async def import_categories(
+    categories: List[Dict[str, Any]] = Body(..., description="List of categories with format: [{'code': int, 'name': str}]"),
+    db: Session = Depends(get_db)
+):
+    """
+    Import categories from list
+    Format: [{"code": 1, "name": "Category name"}, ...]
+    """
+    try:
+        imported = 0
+        updated = 0
+        
+        for cat_data in categories:
+            code = cat_data.get("code")
+            name = cat_data.get("name")
+            
+            if not name:
+                continue
+            
+            # Check if category exists by name
+            category = db.query(Category).filter(Category.name == name).first()
+            
+            if not category:
+                # Create new category
+                category = Category(name=name, code=code, element_count=0)
+                db.add(category)
+                imported += 1
+            else:
+                # Update existing category
+                if code is not None and category.code != code:
+                    category.code = code
+                    updated += 1
+        
+        db.commit()
+        
+        total = db.query(Category).count()
+        return {
+            "message": "Categories imported successfully",
+            "imported": imported,
+            "updated": updated,
+            "total": total,
+            "status": "success"
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error importing categories: {str(e)}"
         )
 
 

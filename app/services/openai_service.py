@@ -528,23 +528,13 @@ class OpenAIService:
                 "metadata": {}
             }
         
-        # Determine if we need chunking
+        # Always split by logical structure (articles, sections, etc.)
+        # This ensures better extraction quality even for small documents
         text_length = len(legal_act_text)
-        needs_chunking = use_chunking and text_length > self.max_chunk_size
         
-        if not needs_chunking:
-            # Process as single chunk
-            return await self.extract_single_chunk(
-                legal_act_text,
-                act_title,
-                chunk_index=0,
-                total_chunks=1,
-                categories=categories
-            )
-        
-        # Split into chunks
-        logger.info(f"Document is large ({text_length} chars), splitting into chunks for {act_title}")
-        chunks = self.chunk_legal_text(legal_act_text)
+        # Split into chunks by structure (always, regardless of size)
+        logger.info(f"Splitting document into logical chunks for {act_title} ({text_length} chars)")
+        chunks = self.chunk_legal_text(legal_act_text, always_split_by_structure=True)
         
         if not chunks:
             logger.warning(f"No chunks created for {act_title}")
@@ -693,89 +683,6 @@ class OpenAIService:
         # This ensures better extraction quality and handles all document sizes
         logger.info(f"Using structured chunking for '{act_title}' (always split by articles/sections)")
         return await self.extract_set_elements_chunked(legal_act_text, act_title, categories, use_chunking=True)
-
-Назва: {act_title}
-
-Текст:
-{text_to_analyze}
-
-ВАЖЛИВО - Виділи ВСІ елементи множини:
-1. До яких категорій (множин) належить цей акт
-2. Які підмножини можна виділити
-3. ВСІ конкретні елементи множини (статті, пункти, підпункти, частини статей)
-   - Не пропускай жодної статті, якщо вона є в акті
-   - Виділи всі пункти та підпункти
-   - Для Конституції та великих актів - виділи ВСІ статті
-4. Зв'язки з іншими нормативно-правовими актами (якщо є посилання на номери реєстрації)
-
-Примітка: Якщо акт містить багато статей (наприклад, Конституція), виділи ВСІ статті, а не тільки перші кілька."""
-
-            # Prepare API call parameters
-            api_params = {
-                "model": self.model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                "response_format": {"type": "json_object"},
-                "temperature": 0.2,  # Lower temperature for more consistent extraction
-                "max_tokens": self.max_response_tokens  # Configurable via OPENAI_MAX_RESPONSE_TOKENS (GPT-4o limit: 16384)
-            }
-            
-            # Add reasoning effort only for models that support it (o1 series)
-            if "o1" in self.model.lower():
-                reasoning_effort = getattr(settings, 'OPENAI_REASONING_EFFORT', 'high')
-                api_params["reasoning_effort"] = reasoning_effort
-            
-            response = await self.client.chat.completions.create(**api_params)
-            
-            result_text = response.choices[0].message.content
-            
-            # Check if response might be truncated (incomplete JSON)
-            # If response doesn't end with }, it might be truncated
-            result_text_stripped = result_text.strip()
-            if not result_text_stripped.endswith('}') and not result_text_stripped.endswith('"}'):
-                logger.warning(f"Response for {act_title} might be truncated, falling back to chunking")
-                # Fallback to chunking
-                return await self.extract_set_elements_chunked(legal_act_text, act_title, categories, use_chunking=True)
-            
-            result = json.loads(result_text)
-            
-            # Log how many elements were extracted
-            elements_count = len(result.get("elements", []))
-            logger.info(f"Successfully extracted {elements_count} elements from act: {act_title}")
-            return result
-            
-        except json.JSONDecodeError as e:
-            logger.warning(f"Failed to parse OpenAI response as JSON for {act_title}: {e}")
-            logger.info(f"Falling back to chunking for {act_title}")
-            # Fallback to chunking if JSON parsing fails (likely due to truncation)
-            try:
-                return await self.extract_set_elements_chunked(legal_act_text, act_title, categories, use_chunking=True)
-            except Exception as chunk_error:
-                logger.error(f"Chunking also failed for {act_title}: {chunk_error}")
-                return {
-                    "categories": [],
-                    "subsets": [],
-                    "elements": [],
-                    "relations": [],
-                    "metadata": {}
-                }
-        except Exception as e:
-            logger.error(f"Error extracting elements for {act_title}: {e}")
-            # Try chunking as fallback
-            logger.info(f"Trying chunking as fallback for {act_title}")
-            try:
-                return await self.extract_set_elements_chunked(legal_act_text, act_title, categories, use_chunking=True)
-            except Exception as chunk_error:
-                logger.error(f"Chunking also failed for {act_title}: {chunk_error}")
-                return {
-                    "categories": [],
-                    "subsets": [],
-                    "elements": [],
-                    "relations": [],
-                    "metadata": {}
-                }
     
     async def analyze_relations(
         self,

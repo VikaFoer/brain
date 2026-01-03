@@ -350,14 +350,27 @@ class RadaAPIService:
     async def get_all_documents_list(self, limit: Optional[int] = None) -> List[str]:
         """
         Get list of ALL document nregs from Rada API
-        Uses pagination to get all documents from all pages
+        Uses multiple strategies: open data API, pagination, new/updated lists
         """
         all_nregs = []
         seen_nregs = set()
         
         try:
-            # Strategy: Use pagination to get all documents
+            # Strategy 1: Try open data portal API first (fastest and most reliable)
+            try:
+                logger.info("Strategy 1: Trying open data portal API...")
+                open_data_nregs = await self.get_all_nregs_from_open_data()
+                if open_data_nregs and len(open_data_nregs) > 0:
+                    logger.info(f"✅ Strategy 1 successful: found {len(open_data_nregs)} documents from open data portal")
+                    if limit and len(open_data_nregs) > limit:
+                        return open_data_nregs[:limit]
+                    return open_data_nregs
+            except Exception as e:
+                logger.warning(f"Strategy 1 (open data API) failed: {e}")
+            
+            # Strategy 2: Use pagination to get all documents
             # Start with /laws/main/r and paginate through all pages
+            logger.info("Strategy 2: Trying pagination method...")
             page = 1
             max_pages = 1000  # Safety limit
             consecutive_empty_pages = 0

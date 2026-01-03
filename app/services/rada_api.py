@@ -367,11 +367,27 @@ class RadaAPIService:
                     await self._rate_limit()
                     
                     # Try different URL formats for pagination
+                    # API might use different pagination formats
                     if page == 1:
-                        url = f"{self.base_url}/laws/main/r"
+                        # Try multiple first page formats
+                        urls_to_try = [
+                            f"{self.base_url}/laws/main/r",
+                            f"{self.base_url}/laws/main",
+                            f"{self.base_url}/laws",
+                        ]
                     else:
                         # Try different pagination formats
-                        url = f"{self.base_url}/laws/main/r?page={page}"
+                        urls_to_try = [
+                            f"{self.base_url}/laws/main/r?page={page}",
+                            f"{self.base_url}/laws/main/r/{page}",
+                            f"{self.base_url}/laws/main?page={page}",
+                            f"{self.base_url}/laws?page={page}",
+                        ]
+                    
+                    # Use first URL for now, but log all options
+                    url = urls_to_try[0]
+                    if page == 1 and len(urls_to_try) > 1:
+                        logger.debug(f"Page {page}: Will try URLs: {urls_to_try}")
                     
                     headers = self._get_headers(use_token=False)
                     logger.info(f"Fetching page {page} from {url}")
@@ -384,13 +400,23 @@ class RadaAPIService:
                             from urllib.parse import unquote
                             from bs4 import BeautifulSoup
                             
+                            # Log response length for debugging
+                            response_length = len(response.text)
+                            logger.debug(f"Page {page}: Response length: {response_length} bytes")
+                            
+                            # Check if response is actually HTML
+                            if response_length < 100:
+                                logger.warning(f"Page {page}: Response too short ({response_length} bytes), might be empty or error")
+                            
                             soup = BeautifulSoup(response.text, 'html.parser')
                             page_nregs = []
                             
                             # Method 1: Find all <a> tags with href containing /laws/show/
+                            links_found = 0
                             for link in soup.find_all('a', href=True):
                                 href = link.get('href', '')
                                 if '/laws/show/' in href:
+                                    links_found += 1
                                     match = re.search(r'/laws/show/([^"\s<>\.\?&#]+)', href)
                                     if match:
                                         nreg = match.group(1)
@@ -408,23 +434,50 @@ class RadaAPIService:
                                                     seen_nregs.add(nreg)
                                                     page_nregs.append(nreg)
                             
-                            # Method 2: Regex fallback
+                            logger.debug(f"Page {page}: Found {links_found} links with /laws/show/, extracted {len(page_nregs)} unique nregs")
+                            
+                            # Method 2: Regex fallback (more aggressive)
                             if not page_nregs:
-                                matches = re.findall(r'/laws/show/([^"\s<>\.\?&#]+)', response.text)
-                                for match in matches:
-                                    nreg = match.replace('.json', '').replace('.txt', '').replace('.html', '')
-                                    if '?' in nreg:
-                                        nreg = nreg.split('?')[0]
-                                    if nreg:
-                                        try:
-                                            decoded = unquote(nreg)
-                                            if decoded not in seen_nregs:
-                                                seen_nregs.add(decoded)
-                                                page_nregs.append(decoded)
-                                        except:
-                                            if nreg not in seen_nregs:
-                                                seen_nregs.add(nreg)
-                                                page_nregs.append(nreg)
+                                # Try multiple regex patterns
+                                patterns = [
+                                    r'/laws/show/([^"\s<>\.\?&#]+)',
+                                    r'/laws/show/([^/]+)',
+                                    r'href=["\']([^"\']*laws/show/([^"\']+))',
+                                    r'"/laws/show/([^"]+)"',
+                                ]
+                                
+                                for pattern in patterns:
+                                    matches = re.findall(pattern, response.text)
+                                    if matches:
+                                        logger.debug(f"Page {page}: Regex pattern '{pattern}' found {len(matches)} matches")
+                                        for match in matches:
+                                            # Handle tuple matches (from groups)
+                                            if isinstance(match, tuple):
+                                                nreg = match[-1]  # Take last group
+                                            else:
+                                                nreg = match
+                                            
+                                            nreg = nreg.replace('.json', '').replace('.txt', '').replace('.html', '')
+                                            if '?' in nreg:
+                                                nreg = nreg.split('?')[0]
+                                            if nreg and len(nreg) > 2:  # Filter out too short matches
+                                                try:
+                                                    decoded = unquote(nreg)
+                                                    if decoded not in seen_nregs:
+                                                        seen_nregs.add(decoded)
+                                                        page_nregs.append(decoded)
+                                                except:
+                                                    if nreg not in seen_nregs:
+                                                        seen_nregs.add(nreg)
+                                                        page_nregs.append(nreg)
+                                        
+                                        if page_nregs:
+                                            break  # Stop if we found something
+                                
+                                if not page_nregs:
+                                    # Log sample of response for debugging
+                                    sample = response.text[:500] if len(response.text) > 500 else response.text
+                                    logger.warning(f"Page {page}: No nregs found. Response sample: {sample[:200]}...")
                             
                             if page_nregs:
                                 all_nregs.extend(page_nregs)
@@ -466,17 +519,34 @@ class RadaAPIService:
             
             if not all_nregs:
                 logger.warning("No documents found with pagination, trying fallback methods...")
-                # Fallback 1: Try get_new_documents_list
-                try:
-                    new_nregs = await self.get_new_documents_list(days=365)
-                    if new_nregs:
-                        logger.info(f"Fallback successful: found {len(new_nregs)} documents from new documents list")
-                        if limit and len(new_nregs) > limit:
-                            new_nregs = new_nregs[:limit]
-                        return new_nregs
-                except Exception as e:
-                    logger.error(f"Fallback get_new_documents_list failed: {e}")
                 
+                # Fallback 1: Try get_new_documents_list with different time ranges
+                for days in [365, 730, 1095]:  # Try 1 year, 2 years, 3 years
+                    try:
+                        logger.info(f"Fallback: Trying get_new_documents_list with {days} days")
+                        new_nregs = await self.get_new_documents_list(days=days)
+                        if new_nregs:
+                            logger.info(f"Fallback successful: found {len(new_nregs)} documents from new documents list ({days} days)")
+                            if limit and len(new_nregs) > limit:
+                                new_nregs = new_nregs[:limit]
+                            return new_nregs
+                    except Exception as e:
+                        logger.warning(f"Fallback get_new_documents_list ({days} days) failed: {e}")
+                        continue
+                
+                # Fallback 2: Try get_updated_documents_list
+                try:
+                    logger.info("Fallback: Trying get_updated_documents_list")
+                    updated_nregs = await self.get_updated_documents_list()
+                    if updated_nregs:
+                        logger.info(f"Fallback successful: found {len(updated_nregs)} documents from updated documents list")
+                        if limit and len(updated_nregs) > limit:
+                            updated_nregs = updated_nregs[:limit]
+                        return updated_nregs
+                except Exception as e:
+                    logger.warning(f"Fallback get_updated_documents_list failed: {e}")
+                
+                logger.error("All fallback methods failed. Cannot retrieve document list from Rada API.")
                 return []
             
             # Remove duplicates but preserve order (as they appear on the site)

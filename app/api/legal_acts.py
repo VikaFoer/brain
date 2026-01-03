@@ -1025,6 +1025,45 @@ async def process_legal_act(
         )
 
 
+@router.post("/{nreg:path}/process")
+async def process_legal_act_by_path(
+    nreg: str = Path(..., description="Номер реєстрації акту"),
+    force_reprocess: bool = Query(False, description="Переобробити навіть якщо вже оброблено"),
+    db: Session = Depends(get_db)
+):
+    """
+    Process a legal act by NREG in URL path: download, extract elements, sync to both DBs
+    Supports both regular NREGs and generated IDs (e.g., laws_f961d3fa7857)
+    """
+    # Decode URL-encoded characters
+    nreg = unquote(nreg)
+    
+    processing_service = ProcessingService(db)
+    
+    try:
+        result = await processing_service.process_legal_act(nreg, force_reprocess=force_reprocess)
+        
+        if result:
+            return {
+                "message": f"Act {nreg} processed successfully",
+                "nreg": result.nreg,
+                "title": result.title,
+                "is_processed": result.is_processed,
+                "processed_at": result.processed_at.isoformat() if result.processed_at else None
+            }
+        else:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Could not process act {nreg}. Act may not exist or could not be downloaded."
+            )
+    except Exception as e:
+        logger.error(f"Error processing act {nreg}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error processing act: {str(e)}"
+        )
+
+
 @router.get("/{nreg:path}", response_model=LegalActResponse)
 async def get_legal_act(
     nreg: str = Path(..., description="Номер реєстрації акту"),

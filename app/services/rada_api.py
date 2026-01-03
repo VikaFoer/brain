@@ -836,35 +836,12 @@ class RadaAPIService:
         dataset = await self.get_open_data_dataset(dataset_id, format="json")
         
         if dataset:
-            nregs = []
-            
-            # Extract NREG identifiers from dataset
-            # Structure might vary, try common patterns
-            if isinstance(dataset, list):
-                for item in dataset:
-                    if isinstance(item, dict):
-                        # Try common field names for NREG
-                        nreg = (item.get("nreg") or item.get("NREG") or 
-                               item.get("number") or item.get("id") or 
-                               item.get("identifier") or item.get("code"))
-                        if nreg:
-                            nregs.append(str(nreg))
-            elif isinstance(dataset, dict):
-                # Dataset might have nested structure
-                records = (dataset.get("data") or dataset.get("records") or 
-                          dataset.get("items") or dataset.get("results") or [])
-                
-                for item in records:
-                    if isinstance(item, dict):
-                        nreg = (item.get("nreg") or item.get("NREG") or 
-                               item.get("number") or item.get("id") or 
-                               item.get("identifier") or item.get("code"))
-                        if nreg:
-                            nregs.append(str(nreg))
-            
+            nregs = self._extract_nregs_from_dataset(dataset)
             if nregs:
                 logger.info(f"Found {len(nregs)} NREG identifiers from open data portal")
-                return list(set(nregs))  # Remove duplicates
+                if limit and len(nregs) > limit:
+                    return nregs[:limit]
+                return nregs
         
         # Fallback to CSV if JSON didn't work
         logger.info("JSON format didn't work, trying CSV...")
@@ -886,6 +863,104 @@ class RadaAPIService:
         
         logger.warning("Could not extract NREG identifiers from open data dataset")
         return []
+    
+    def _is_valid_nreg(self, nreg: str) -> bool:
+        """
+        Validate NREG format
+        Valid NREG should contain '/' or '-' (typical Ukrainian format like 254к/96-вр)
+        Exclude common invalid patterns like 'links-code', 'doc-dates', etc.
+        """
+        if not nreg or len(nreg) < 3:
+            return False
+        
+        nreg_lower = nreg.lower()
+        
+        # Exclude common invalid patterns
+        invalid_patterns = [
+            'links-code', 'doc-dates', 'dict', 'proj', 'docs',
+            'links', 'dates', 'code', 'id', 'guid', 'identifier'
+        ]
+        
+        if nreg_lower in invalid_patterns:
+            return False
+        
+        # Valid NREG should contain '/' or '-' (typical format: 254к/96-вр)
+        if '/' in nreg or '-' in nreg:
+            # Additional validation: should have numbers
+            import re
+            if re.search(r'\d', nreg):
+                return True
+        
+        # Also accept simple numeric IDs if they look like NREG
+        # But exclude very short numbers
+        if nreg.isdigit() and len(nreg) >= 4:
+            return True
+        
+        return False
+    
+    def _extract_nregs_from_dataset(self, dataset: Any) -> List[str]:
+        """
+        Extract NREG identifiers from dataset structure
+        Handles various data structures (list, dict, nested)
+        Validates NREG format to exclude invalid values
+        """
+        nregs = []
+        
+        # Extract NREG identifiers from dataset
+        # Structure might vary, try common patterns
+        if isinstance(dataset, list):
+            for item in dataset:
+                if isinstance(item, dict):
+                    # Try common field names for NREG
+                    nreg = (item.get("nreg") or item.get("NREG") or 
+                           item.get("number") or item.get("id") or 
+                           item.get("identifier") or item.get("code") or
+                           item.get("nreg_id") or item.get("document_id") or
+                           item.get("doc_id"))
+                    if nreg:
+                        nreg_str = str(nreg).strip()
+                        if self._is_valid_nreg(nreg_str):
+                            nregs.append(nreg_str)
+        elif isinstance(dataset, dict):
+            # If dataset is a dict, it might contain a list in a field
+            for key in ["data", "items", "results", "documents", "acts", "docs", "list"]:
+                if key in dataset and isinstance(dataset[key], list):
+                    for item in dataset[key]:
+                        if isinstance(item, dict):
+                            nreg = (item.get("nreg") or item.get("NREG") or 
+                                   item.get("number") or item.get("id") or 
+                                   item.get("identifier") or item.get("code") or
+                                   item.get("nreg_id") or item.get("document_id") or
+                                   item.get("doc_id"))
+                            if nreg:
+                                nreg_str = str(nreg).strip()
+                                if self._is_valid_nreg(nreg_str):
+                                    nregs.append(nreg_str)
+            # Or the dict itself might have nreg
+            nreg = (dataset.get("nreg") or dataset.get("NREG") or 
+                   dataset.get("number") or dataset.get("id"))
+            if nreg:
+                nreg_str = str(nreg).strip()
+                if self._is_valid_nreg(nreg_str):
+                    nregs.append(nreg_str)
+        
+        # Remove duplicates and return
+        unique_nregs = list(set(nregs))
+        
+        if not unique_nregs:
+            # Log structure for debugging
+            if isinstance(dataset, dict):
+                logger.debug(f"Dataset keys: {list(dataset.keys())[:10]}")
+                if len(dataset) > 0:
+                    first_key = list(dataset.keys())[0]
+                    if isinstance(dataset.get(first_key), list) and len(dataset[first_key]) > 0:
+                        first_item = dataset[first_key][0]
+                        if isinstance(first_item, dict):
+                            logger.debug(f"First item keys: {list(first_item.keys())[:10]}")
+            elif isinstance(dataset, list) and len(dataset) > 0:
+                logger.debug(f"First item keys: {list(dataset[0].keys())[:10] if isinstance(dataset[0], dict) else 'Not a dict'}")
+        
+        return unique_nregs
     
     async def _try_pagination(self, client: httpx.AsyncClient, headers: Dict[str, str], all_nregs: List[str], limit: Optional[int] = None):
         """Try to get documents using pagination"""

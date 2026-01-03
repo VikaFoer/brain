@@ -45,6 +45,12 @@ class ProcessingService:
         if act and not act.is_processed:
             logger.info(f"Act {nreg} exists but not processed, continuing with processing...")
         
+        # Validate NREG format before processing
+        # Check if it looks like a valid NREG (contains / or -)
+        if not ('/' in nreg or '-' in nreg) and not nreg.isdigit():
+            logger.warning(f"Invalid NREG format: {nreg}. Skipping download.")
+            return None
+        
         # Download from Rada API
         logger.info(f"Downloading act {nreg} from Rada API...")
         document_json = await rada_api.get_document_json(nreg)

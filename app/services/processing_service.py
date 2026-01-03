@@ -227,6 +227,33 @@ class ProcessingService:
         if text:
             text_length = len(text) if text else 0
             logger.info(f"Extracting elements from {nreg} using OpenAI... (text length: {text_length} chars)")
+            
+            # Check if text is too short (might be just metadata, not full document)
+            # If text is less than 500 chars, try to find real NREG in metadata and download full text
+            if text_length < 500 and act and act.dataset_metadata:
+                logger.info(f"Text is short ({text_length} chars), checking for real NREG in metadata...")
+                metadata = act.dataset_metadata
+                # Try to find real NREG in metadata
+                real_nreg = (metadata.get("nreg") or metadata.get("NREG") or 
+                           metadata.get("nreg_number") or metadata.get("document_number") or
+                           metadata.get("act_number") or metadata.get("law_number") or
+                           metadata.get("number") or metadata.get("id"))
+                
+                # If found real NREG and it's different from current (generated) ID, try to download
+                if real_nreg and str(real_nreg) != nreg and rada_api._is_valid_nreg(str(real_nreg)):
+                    logger.info(f"Found real NREG {real_nreg} in metadata, attempting to download full text...")
+                    try:
+                        full_text = await rada_api.get_document_text(str(real_nreg))
+                        if full_text and len(full_text) > text_length:
+                            text = full_text
+                            text_length = len(text)
+                            logger.info(f"Downloaded full text from Rada API ({text_length} chars)")
+                            # Update act with full text
+                            act.text = text
+                            self.db.commit()
+                    except Exception as e:
+                        logger.warning(f"Failed to download full text for {real_nreg}: {e}")
+            
             try:
                 extracted = await openai_service.extract_set_elements(
                     legal_act_text=text,

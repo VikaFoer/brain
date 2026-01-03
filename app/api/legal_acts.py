@@ -499,6 +499,12 @@ async def sync_all_rada_acts(
             
             for nreg in all_nregs:
                 try:
+                    # Validate NREG before processing
+                    if not rada_api._is_valid_nreg(nreg):
+                        logger.debug(f"Skipping invalid NREG: {nreg}")
+                        skipped += 1
+                        continue
+                    
                     # Check if already exists
                     act = bg_db.query(LegalAct).filter(LegalAct.nreg == nreg).first()
                     

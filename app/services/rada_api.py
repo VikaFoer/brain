@@ -847,19 +847,13 @@ class RadaAPIService:
         logger.info("JSON format didn't work, trying CSV...")
         dataset_csv = await self.get_open_data_dataset(dataset_id, format="csv")
         
-        if dataset_csv and isinstance(dataset_csv, list):
-            nregs = []
-            for item in dataset_csv:
-                if isinstance(item, dict):
-                    nreg = (item.get("nreg") or item.get("NREG") or 
-                           item.get("number") or item.get("id") or 
-                           item.get("identifier") or item.get("code"))
-                    if nreg:
-                        nregs.append(str(nreg))
-            
+        if dataset_csv:
+            nregs = self._extract_nregs_from_dataset(dataset_csv)
             if nregs:
                 logger.info(f"Found {len(nregs)} NREG identifiers from CSV format")
-                return list(set(nregs))
+                if limit and len(nregs) > limit:
+                    return nregs[:limit]
+                return nregs
         
         logger.warning("Could not extract NREG identifiers from open data dataset")
         return []
@@ -878,10 +872,16 @@ class RadaAPIService:
         # Exclude common invalid patterns
         invalid_patterns = [
             'links-code', 'doc-dates', 'dict', 'proj', 'docs',
-            'links', 'dates', 'code', 'id', 'guid', 'identifier'
+            'links', 'dates', 'code', 'id', 'guid', 'identifier',
+            'ist', 'public', 'private', 'static', 'class', 'def',
+            'list', 'data', 'items', 'results', 'documents', 'acts'
         ]
         
         if nreg_lower in invalid_patterns:
+            return False
+        
+        # Exclude single words that are too short or look like code keywords
+        if len(nreg) <= 3 and nreg.isalpha():
             return False
         
         # Valid NREG should contain '/' or '-' (typical format: 254к/96-вр)

@@ -10,6 +10,9 @@ from app.models.legal_act import LegalAct
 from app.models.category import Category
 from app.services.processing_service import ProcessingService
 from pydantic import BaseModel
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -215,18 +218,14 @@ async def initialize_categories(db: Session = Depends(get_db)):
         
         count = db.query(Category).count()
         return {
-            "message": "Categories initialized successfully",
-            "count": count,
-            "status": "success"
+            "message": f"Categories initialized successfully. Total categories: {count}",
+            "count": count
         }
     except Exception as e:
-        error_msg = str(e)
-        # Provide helpful error message
-        if "no such table" in error_msg.lower() or "relation" in error_msg.lower():
-            error_msg += ". Tables should be created automatically. Please check DATABASE_URL."
+        logger.error(f"Error initializing categories: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Error initializing categories: {error_msg}"
+            detail=f"Error initializing categories: {str(e)}"
         )
 
 
@@ -237,10 +236,15 @@ async def import_categories(
 ):
     """
     Import categories from list
-    Format: [{"code": 1, "name": "Category name"}, ...]
     """
+    from app.models.category import Category
+    from app.services.neo4j_service import neo4j_service
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
     try:
-        imported = 0
+        created = 0
         updated = 0
         
         for cat_data in categories:
@@ -251,30 +255,39 @@ async def import_categories(
                 continue
             
             # Check if category exists by name
-            category = db.query(Category).filter(Category.name == name).first()
+            existing = db.query(Category).filter(Category.name == name).first()
             
-            if not category:
-                # Create new category
-                category = Category(name=name, code=code, element_count=0)
-                db.add(category)
-                imported += 1
-            else:
+            if existing:
                 # Update existing category
-                if code is not None and category.code != code:
-                    category.code = code
-                    updated += 1
+                if code is not None:
+                    existing.code = code
+                updated += 1
+            else:
+                # Create new category
+                new_category = Category(name=name, code=code)
+                db.add(new_category)
+                created += 1
+                
+                # Also create in Neo4j
+                try:
+                    neo4j_service.create_category_node(
+                        category_id=new_category.id,
+                        name=new_category.name,
+                        element_count=0,
+                        code=new_category.code
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to create category in Neo4j: {e}")
         
         db.commit()
         
-        total = db.query(Category).count()
         return {
-            "message": "Categories imported successfully",
-            "imported": imported,
-            "updated": updated,
-            "total": total,
-            "status": "success"
+            "message": f"Categories imported successfully. Created: {created}, Updated: {updated}",
+            "created": created,
+            "updated": updated
         }
     except Exception as e:
+        logger.error(f"Error importing categories: {e}", exc_info=True)
         db.rollback()
         raise HTTPException(
             status_code=500,
@@ -282,112 +295,79 @@ async def import_categories(
         )
 
 
-# IMPORTANT: Specific routes must come BEFORE the general {nreg:path} route
-# Otherwise FastAPI will match /check, /details, /process as part of nreg
-
 @router.get("/{nreg:path}/check")
 async def check_legal_act_exists(
     nreg: str = Path(..., description="Номер реєстрації акту"),
     db: Session = Depends(get_db)
 ):
-    """Check if legal act exists on Rada website"""
-    # Decode URL-encoded characters
-    nreg = unquote(nreg)
-    
+    """
+    Check if legal act exists on Rada website and in database
+    """
     from app.services.rada_api import rada_api
     import logging
     
     logger = logging.getLogger(__name__)
     
-    # Check if already in database
-    act = db.query(LegalAct).filter(LegalAct.nreg == nreg).first()
-    if act:
-        return {
-            "exists": True,
-            "in_database": True,
-            "is_processed": act.is_processed,
-            "title": act.title,
-            "message": "Акт знайдено в базі даних"
-        }
+    # Decode URL-encoded characters
+    nreg = unquote(nreg)
     
-    # Check on Rada website
     try:
-        logger.info(f"Checking act {nreg} on Rada website...")
-        document_json = await rada_api.get_document_json(nreg)
-        if document_json:
-            title = document_json.get("title", nreg)
-            logger.info(f"Act {nreg} found on Rada website: {title}")
+        # Check in database first
+        act = db.query(LegalAct).filter(LegalAct.nreg == nreg).first()
+        
+        if act:
             return {
                 "exists": True,
-                "in_database": False,
-                "is_processed": False,
-                "title": title,
-                "message": f"Акт знайдено на сайті data.rada.gov.ua: {title}"
+                "in_database": True,
+                "is_processed": act.is_processed,
+                "title": act.title,
+                "message": f"Act {nreg} exists in database"
             }
-        else:
-            logger.warning(f"Act {nreg} not found on Rada website")
-            # Try alternative formats - common variations
-            alternative_nregs = []
+        
+        # Check on Rada website
+        try:
+            card_json = await rada_api.get_document_card(nreg)
             
-            # Try different case variations
-            if nreg != nreg.upper():
-                alternative_nregs.append(nreg.upper())
-            if nreg != nreg.lower():
-                alternative_nregs.append(nreg.lower())
-            
-            # Try replacing / with - and vice versa
-            if '/' in nreg:
-                alternative_nregs.append(nreg.replace('/', '-'))
-            if '-' in nreg:
-                alternative_nregs.append(nreg.replace('-', '/'))
-            
-            # Try different Cyrillic/latin variations
-            cyr_to_lat = {'к': 'k', 'К': 'K', 'в': 'v', 'В': 'V', 'р': 'r', 'Р': 'R'}
-            lat_to_cyr = {'k': 'к', 'K': 'К', 'v': 'в', 'V': 'В', 'r': 'р', 'R': 'Р'}
-            
-            # Convert Cyrillic to Latin
-            lat_nreg = nreg
-            for cyr, lat in cyr_to_lat.items():
-                lat_nreg = lat_nreg.replace(cyr, lat)
-            if lat_nreg != nreg:
-                alternative_nregs.append(lat_nreg)
-            
-            # Convert Latin to Cyrillic
-            cyr_nreg = nreg
-            for lat, cyr in lat_to_cyr.items():
-                cyr_nreg = cyr_nreg.replace(lat, cyr)
-            if cyr_nreg != nreg:
-                alternative_nregs.append(cyr_nreg)
-            
-            # Remove duplicates
-            alternative_nregs = list(set(alternative_nregs))
-            
-            for alt_nreg in alternative_nregs:
-                if alt_nreg == nreg:
-                    continue
-                logger.info(f"Trying alternative format: {alt_nreg}")
-                try:
-                    alt_doc = await rada_api.get_document_json(alt_nreg)
-                    if alt_doc:
-                        title = alt_doc.get("title", alt_nreg)
-                        return {
-                            "exists": True,
-                            "in_database": False,
-                            "is_processed": False,
-                            "title": title,
-                            "message": f"Акт знайдено на сайті data.rada.gov.ua (альтернативний формат): {title}"
-                        }
-                except Exception as e:
-                    logger.debug(f"Alternative format {alt_nreg} failed: {e}")
-                    continue
-            
-            return {
-                "exists": False,
-                "in_database": False,
-                "is_processed": False,
-                "title": None,
-                "message": f"Акт {nreg} не знайдено на сайті data.rada.gov.ua. Перевірте правильність номера реєстрації."
-            }
+            if card_json:
+                # Try to get alternative NREG formats
+                alternative_nregs = []
+                if card_json.get("nreg"):
+                    alternative_nregs.append(card_json.get("nreg"))
+                if card_json.get("number"):
+                    alternative_nregs.append(card_json.get("number"))
+                if card_json.get("id"):
+                    alternative_nregs.append(card_json.get("id"))
+                
+                # Check if any alternative exists in DB
+                for alt_nreg in alternative_nregs:
+                    if alt_nreg:
+                        alt_act = db.query(LegalAct).filter(LegalAct.nreg == alt_nreg).first()
+                        if alt_act:
+                            return {
+                                "exists": True,
+                                "in_database": True,
+                                "is_processed": alt_act.is_processed,
+                                "title": alt_act.title,
+                                "message": f"Act found with alternative NREG: {alt_nreg}"
+                            }
+                
+                return {
+                    "exists": True,
+                    "in_database": False,
+                    "is_processed": False,
+                    "title": card_json.get("title", nreg),
+                    "message": f"Act {nreg} exists on Rada website but not in database"
+                }
+        except Exception as e:
+            logger.debug(f"Error checking act on Rada: {e}")
+        
+        return {
+            "exists": False,
+            "in_database": False,
+            "is_processed": False,
+            "title": None,
+            "message": f"Act {nreg} not found"
+        }
     except Exception as e:
         logger.error(f"Error checking act {nreg}: {e}", exc_info=True)
         return {
@@ -443,8 +423,9 @@ async def get_rada_acts_list(
     db: Session = Depends(get_db)
 ):
     """
-    Отримати список всіх НПА з Rada API зі статусами
-    Повертає список NREG з інформацією про те, які вже завантажені та оброблені
+    Отримати список всіх НПА з бази даних
+    Повертає список документів з інформацією про те, які вже завантажені та оброблені
+    Більше не витягує NREG з API - використовує тільки дані з БД
     """
     import logging
     
@@ -462,26 +443,20 @@ async def get_rada_acts_list(
             columns = [col['name'] for col in inspector.get_columns('legal_acts')]
             
             if 'dataset_id' not in columns:
-                logger.warning("Column 'dataset_id' not found, adding it...")
                 with engine.connect() as conn:
                     conn.execute(text("ALTER TABLE legal_acts ADD COLUMN IF NOT EXISTS dataset_id VARCHAR(100)"))
                     conn.execute(text("CREATE INDEX IF NOT EXISTS ix_legal_acts_dataset_id ON legal_acts(dataset_id)"))
                     conn.commit()
-                logger.info("Column 'dataset_id' added successfully")
             
             if 'dataset_metadata' not in columns:
-                logger.warning("Column 'dataset_metadata' not found, adding it...")
                 with engine.connect() as conn:
                     conn.execute(text("ALTER TABLE legal_acts ADD COLUMN IF NOT EXISTS dataset_metadata JSON"))
                     conn.commit()
-                logger.info("Column 'dataset_metadata' added successfully")
             
             if 'source' not in columns:
-                logger.warning("Column 'source' not found, adding it...")
                 with engine.connect() as conn:
                     conn.execute(text("ALTER TABLE legal_acts ADD COLUMN IF NOT EXISTS source VARCHAR(50) DEFAULT 'rada_api'"))
                     conn.commit()
-                logger.info("Column 'source' added successfully")
         except Exception as migration_error:
             logger.debug(f"Migration check: {migration_error}")
         
@@ -694,8 +669,8 @@ async def sync_all_rada_acts(
     db: Session = Depends(get_db)
 ):
     """
-    Одноразове завантаження ВСІХ НПА з Rada API в базу даних
-    Створює записи з мінімальною інформацією (nreg, title) для подальшого відстеження
+    Одноразове завантаження ВСІХ НПА з open data датасету в базу даних
+    Використовує новий метод get_all_documents_from_dataset (без витягування NREG)
     """
     from app.services.rada_api import rada_api
     from app.core.database import SessionLocal
@@ -737,46 +712,26 @@ async def sync_all_rada_acts(
                 title = (doc.get("title") or doc.get("name") or 
                         doc.get("Title") or doc.get("Name") or nreg)
                 try:
-                    # Validate NREG before processing
-                    if not rada_api._is_valid_nreg(nreg):
-                        logger.debug(f"Skipping invalid NREG: {nreg}")
-                        skipped += 1
-                        continue
-                    
                     # Check if already exists
                     act = bg_db.query(LegalAct).filter(LegalAct.nreg == nreg).first()
                     
                     if act:
-                        # Update if needed (e.g., if title is missing)
+                        # Update if needed (e.g., if title is missing or metadata is missing)
                         if not act.title or act.title == act.nreg:
-                            # Try to get title from Rada API
-                            try:
-                                await rada_api._rate_limit()
-                                card_json = await rada_api.get_document_card(nreg)
-                                if card_json and card_json.get("title"):
-                                    act.title = card_json.get("title")
-                                    updated += 1
-                                else:
-                                    skipped += 1
-                            except:
-                                skipped += 1
-                        else:
-                            skipped += 1
+                            act.title = title
+                        if not act.dataset_metadata:
+                            act.dataset_metadata = doc
+                            act.dataset_id = doc.get("_dataset_id")
+                            act.source = "open_data"
+                        updated += 1
                     else:
-                        # Create new act with minimal info
-                        # Try to get title from Rada API
-                        title = nreg  # Default title
-                        try:
-                            await rada_api._rate_limit()
-                            card_json = await rada_api.get_document_card(nreg)
-                            if card_json and card_json.get("title"):
-                                title = card_json.get("title")
-                        except:
-                            pass  # Use default title
-                        
+                        # Create new act with all available information
                         new_act = LegalAct(
                             nreg=nreg,
                             title=title,
+                            dataset_metadata=doc,
+                            dataset_id=doc.get("_dataset_id"),
+                            source="open_data",
                             is_processed=False
                         )
                         bg_db.add(new_act)
@@ -788,31 +743,25 @@ async def sync_all_rada_acts(
                         logger.info(f"Progress: {created} created, {updated} updated, {skipped} skipped (total processed: {created + updated})")
                 
                 except Exception as e:
-                    logger.error(f"Error processing NREG {nreg}: {e}")
+                    logger.error(f"Error processing document {doc.get('nreg', 'unknown')}: {e}")
                     bg_db.rollback()
+                    skipped += 1
                     continue
             
             # Final commit
             bg_db.commit()
-            logger.info(f"Sync completed: {created} created, {updated} updated, {skipped} skipped, total: {len(all_nregs)}")
+            logger.info(f"Sync completed: {created} created, {updated} updated, {skipped} skipped, total: {len(all_documents)}")
             
         except Exception as e:
-            logger.error(f"Error in sync_all_acts background task: {e}", exc_info=True)
+            logger.error(f"Error in sync_all_acts: {e}", exc_info=True)
         finally:
             bg_db.close()
     
-    if background_tasks:
-        background_tasks.add_task(lambda: asyncio.run(sync_all_acts()))
-        return {
-            "message": "Синхронізація всіх НПА з Rada API запущена в фоновому режимі",
-            "status": "queued"
-        }
-    else:
-        await sync_all_acts()
-        return {
-            "message": "Синхронізація всіх НПА з Rada API завершена",
-            "status": "completed"
-        }
+    background_tasks.add_task(lambda: asyncio.run(sync_all_acts()))
+    return {
+        "message": "Завантаження всіх НПА з датасету запущено в фоновому режимі.",
+        "status": "queued"
+    }
 
 
 @router.post("/download-active-acts")
@@ -822,8 +771,9 @@ async def download_active_acts(
     db: Session = Depends(get_db)
 ):
     """
-    Завантажити всі ДІЮЧІ нормативно-правові акти з Rada API
+    Завантажити всі ДІЮЧІ нормативно-правові акти з open data датасету
     Фільтрує тільки акти зі статусом "діє", "чинний" тощо
+    Використовує новий метод get_all_documents_from_dataset (без витягування NREG)
     """
     from app.services.rada_api import rada_api
     from app.core.database import SessionLocal
@@ -865,43 +815,36 @@ async def download_active_acts(
             try:
                 logger.info("Спроба отримати документи через open data portal API...")
                 all_documents = await rada_api.get_all_documents_from_dataset()
-                if all_nregs:
-                    logger.info(f"✅ Отримано {len(all_nregs)} NREG через open data portal")
+                if all_documents:
+                    logger.info(f"✅ Отримано {len(all_documents)} документів через open data portal")
             except Exception as e:
-                logger.warning(f"Open data API не працює: {e}, використовую fallback...")
+                logger.warning(f"Open data API не працює: {e}")
             
-            if not all_nregs:
-                all_nregs = await rada_api.get_all_documents_list(limit=None)
-            
-            if not all_nregs:
-                logger.error("❌ Не вдалося отримати список НПА з Rada API")
+            if not all_documents:
+                logger.error("❌ Не вдалося отримати документи з датасету")
                 return
             
-            logger.info(f"📋 Знайдено {len(all_nregs)} загальних документів")
+            logger.info(f"📋 Знайдено {len(all_documents)} загальних документів")
             
             # Фільтрувати діючі
-            active_nregs = []
+            active_documents = []
             existing_nregs = {act.nreg for act in bg_db.query(LegalAct.nreg).all()}
             created = 0
             updated = 0
             skipped_inactive = 0
             
             logger.info("🔍 Фільтрація діючих актів...")
-            batch_size = 50
             
-            for i in range(0, len(all_nregs), batch_size):
-                batch = all_nregs[i:i + batch_size]
-                
-                for nreg in batch:
-                    try:
-                        # Валідувати NREG перед обробкою
-                        if not rada_api._is_valid_nreg(nreg):
-                            logger.debug(f"Skipping invalid NREG: {nreg}")
-                            skipped_inactive += 1
-                            continue
-                        
-                        # Перевірити статус
-                        card = await rada_api.get_document_card(nreg)
+            for doc in all_documents:
+                try:
+                    # Extract NREG from document
+                    nreg = (doc.get("nreg") or doc.get("NREG") or 
+                           doc.get("id") or doc.get("number") or 
+                           doc.get("identifier") or f"doc_{created}")
+                    
+                    # Extract status from document metadata
+                    status = (doc.get("status") or doc.get("Status") or 
+                             doc.get("статус") or doc.get("Статус"))
                     
                     # Check if status is active
                     if not is_active_status(status):
@@ -911,38 +854,42 @@ async def download_active_acts(
                     # Extract title
                     title = (doc.get("title") or doc.get("name") or 
                             doc.get("Title") or doc.get("Name") or nreg)
-                        
-                        # Створити або оновити акт
-                        existing_act = bg_db.query(LegalAct).filter(LegalAct.nreg == nreg).first()
-                        
-                        if existing_act:
-                            if not existing_act.title or existing_act.title == nreg:
-                                existing_act.title = title
-                                existing_act.status = status
-                                updated += 1
-                        else:
-                            new_act = LegalAct(
-                                nreg=nreg,
-                                title=title,
-                                status=status,
-                                is_processed=False
-                            )
-                            bg_db.add(new_act)
-                            active_nregs.append(nreg)
-                            created += 1
-                        
-                        # Коміт батчами
-                        if (created + updated) % 100 == 0:
-                            bg_db.commit()
-                            logger.info(f"Прогрес: {created} створено, {updated} оновлено, {skipped_inactive} пропущено (недіючі)")
                     
-                    except Exception as e:
-                        logger.error(f"Помилка обробки {nreg}: {e}")
-                        bg_db.rollback()
-                        continue
+                    # Створити або оновити акт
+                    existing_act = bg_db.query(LegalAct).filter(LegalAct.nreg == nreg).first()
+                    
+                    if existing_act:
+                        if not existing_act.title or existing_act.title == nreg:
+                            existing_act.title = title
+                            existing_act.status = status
+                        if not existing_act.dataset_metadata:
+                            existing_act.dataset_metadata = doc
+                            existing_act.dataset_id = doc.get("_dataset_id")
+                            existing_act.source = "open_data"
+                        updated += 1
+                    else:
+                        new_act = LegalAct(
+                            nreg=nreg,
+                            title=title,
+                            status=status,
+                            dataset_metadata=doc,
+                            dataset_id=doc.get("_dataset_id"),
+                            source="open_data",
+                            is_processed=False
+                        )
+                        bg_db.add(new_act)
+                        active_documents.append(nreg)
+                        created += 1
+                    
+                    # Коміт батчами
+                    if (created + updated) % 100 == 0:
+                        bg_db.commit()
+                        logger.info(f"Прогрес: {created} створено, {updated} оновлено, {skipped_inactive} пропущено (недіючі)")
                 
-                if (i + batch_size) % 500 == 0:
-                    logger.info(f"Перевірено {min(i + batch_size, len(all_nregs))}/{len(all_nregs)} актів")
+                except Exception as e:
+                    logger.error(f"Помилка обробки документа {doc.get('nreg', 'unknown')}: {e}")
+                    bg_db.rollback()
+                    continue
             
             bg_db.commit()
             logger.info(f"✅ Завантаження завершено: {created} створено, {updated} оновлено, {skipped_inactive} пропущено (недіючі)")
@@ -954,7 +901,7 @@ async def download_active_acts(
                 processed = 0
                 failed = 0
                 
-                for nreg in active_nregs:
+                for nreg in active_documents:
                     try:
                         result = await processing_service.process_legal_act(nreg)
                         if result and result.is_processed:
@@ -973,319 +920,72 @@ async def download_active_acts(
                 logger.info(f"✅ Обробка завершена: {processed} оброблено, {failed} помилок")
             
         except Exception as e:
-            logger.error(f"Помилка в download_and_process_active: {e}", exc_info=True)
-            bg_db.rollback()
+            logger.error(f"Error in download_and_process_active: {e}", exc_info=True)
         finally:
             bg_db.close()
     
-    if background_tasks:
-        background_tasks.add_task(lambda: asyncio.run(download_and_process_active()))
-        return {
-            "message": "Завантаження діючих НПА запущено в фоновому режимі",
-            "status": "queued",
-            "will_process": process
-        }
-    else:
-        await download_and_process_active()
-        return {
-            "message": "Завантаження діючих НПА завершено",
-            "status": "completed",
-            "will_process": process
-        }
+    background_tasks.add_task(lambda: asyncio.run(download_and_process_active()))
+    return {
+        "message": "Завантаження діючих НПА запущено в фоновому режимі.",
+        "status": "queued",
+        "process_requested": process
+    }
 
 
-@router.post("/process-all-overnight")
-async def process_all_overnight(
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db)
-):
-    """
-    Запустити нічну обробку всіх НПА
-    Обробляє всі необроблені НПА з бази даних
-    """
-    from app.core.database import SessionLocal
-    from app.services.processing_service import ProcessingService
-    from app.models.legal_act import LegalAct
-    import asyncio
-    import logging
-    
-    logger = logging.getLogger(__name__)
-    
-    async def process_all():
-        """Фонова задача для обробки всіх НПА"""
-        bg_db = SessionLocal()
-        try:
-            logger.info("🌙 Початок нічної обробки всіх НПА...")
-            
-            # Отримати всі необроблені НПА
-            unprocessed_acts = bg_db.query(LegalAct).filter(LegalAct.is_processed == False).all()
-            nregs_to_process = [act.nreg for act in unprocessed_acts]
-            
-            logger.info(f"📊 Знайдено {len(nregs_to_process)} НПА для обробки")
-            
-            if not nregs_to_process:
-                logger.info("✅ Всі НПА вже оброблені!")
-                return
-            
-            # Обробка
-            processing_service = ProcessingService(bg_db)
-            processed = 0
-            failed = 0
-            already_processed = 0
-            
-            for nreg in nregs_to_process:
-                try:
-                    # Перевірка чи вже оброблено (на випадок паралельної обробки)
-                    act = bg_db.query(LegalAct).filter(LegalAct.nreg == nreg).first()
-                    if act and act.is_processed:
-                        already_processed += 1
-                        logger.info(f"⏭️  Акт {nreg} вже оброблено, пропускаємо")
-                        continue
-                    
-                    # Обробка
-                    logger.info(f"⚙️  Обробка акту {nreg} ({processed + 1}/{len(nregs_to_process)})...")
-                    result = await processing_service.process_legal_act(nreg)
-                    
-                    if result and result.is_processed:
-                        bg_db.commit()
-                        processed += 1
-                        logger.info(f"✅ Акт {nreg} успішно оброблено")
-                    else:
-                        failed += 1
-                        logger.warning(f"❌ Не вдалося обробити акт {nreg}")
-                    
-                except Exception as e:
-                    failed += 1
-                    logger.error(f"❌ Помилка обробки акту {nreg}: {e}", exc_info=True)
-                    bg_db.rollback()
-            
-            logger.info(f"📊 Обробка завершена: {processed} оброблено, {already_processed} пропущено, {failed} помилок")
-        
-        except Exception as e:
-            logger.error(f"❌ Критична помилка в нічній обробці: {e}", exc_info=True)
-        finally:
-            bg_db.close()
-    
-    if background_tasks:
-        background_tasks.add_task(lambda: asyncio.run(process_all()))
-        return {
-            "message": "Нічна обробка всіх НПА запущена в фоновому режимі",
-            "status": "queued"
-        }
-    else:
-        await process_all()
-        return {
-            "message": "Нічна обробка всіх НПА завершена",
-            "status": "completed"
-        }
-
-
-@router.post("/auto-download")
-async def auto_download_acts(
-    count: int = 10,
-    background_tasks: BackgroundTasks = None,
-    db: Session = Depends(get_db)
-):
-    """
-    Автоматичне завантаження та обробка N документів з Rada API
-    Документи завантажуються в порядку, в якому вони зберігаються на сайті Rada
-    """
-    from app.services.rada_api import rada_api
-    from app.services.processing_service import ProcessingService
-    from app.core.database import SessionLocal
-    import asyncio
-    import logging
-    
-    logger = logging.getLogger(__name__)
-    
-    # Перевірка OpenAI
-    from app.core.config import settings
-    if not settings.OPENAI_API_KEY:
-        raise HTTPException(
-            status_code=400,
-            detail="OpenAI API key is not configured. Please set OPENAI_API_KEY environment variable."
-        )
-    
-    async def download_and_process():
-        """Background task для завантаження та обробки"""
-        bg_db = SessionLocal()
-        try:
-            logger.info(f"Starting auto-download of {count} documents")
-            
-            # Отримати список документів в порядку з сайту
-            all_nregs = await rada_api.get_all_documents_list(limit=None)
-            
-            if not all_nregs:
-                logger.error("No documents found from Rada API")
-                logger.info("Trying alternative: get new documents list")
-                # Fallback 1: try to get new documents instead
-                try:
-                    all_nregs = await rada_api.get_new_documents_list(days=365)
-                    if all_nregs:
-                        logger.info(f"Found {len(all_nregs)} documents using new documents list")
-                    else:
-                        logger.warning("New documents list also returned empty")
-                except Exception as e:
-                    logger.warning(f"New documents list method failed: {e}")
-                
-                # Fallback 2: If still no documents, try to use known NREGs from database
-                if not all_nregs:
-                    logger.info("Trying fallback: use NREGs from database")
-                    # Get ALL NREGs from database (both processed and unprocessed)
-                    all_db_acts = bg_db.query(LegalAct.nreg).all()
-                    known_nregs = [act[0] for act in all_db_acts]
-                    
-                    if known_nregs:
-                        logger.info(f"Found {len(known_nregs)} NREGs in database: {known_nregs[:5]}...")
-                        # Use all NREGs from database as fallback
-                        all_nregs = known_nregs
-                        logger.info(f"Using {len(all_nregs)} NREGs from database as fallback")
-                    else:
-                        # Last resort: try some common NREG patterns
-                        logger.info("No NREGs in database, trying common patterns")
-                        # Generate some test NREGs based on common patterns
-                        # This is a last resort - better to fix the parsing
-                        common_patterns = [
-                            "254к/96-ВР", "123/2023", "100/2024", "50/2022", "200/2021",
-                            "300/2020", "400/2019", "500/2018", "600/2017", "700/2016"
-                        ]
-                        all_nregs = common_patterns
-                        logger.warning(f"Using fallback common patterns: {all_nregs}")
-                
-                if not all_nregs:
-                    logger.error("All methods failed to get document list")
-                    return
-            
-            # Фільтрувати вже оброблені (зберігаючи порядок)
-            processed_nregs = {act.nreg for act in bg_db.query(LegalAct.nreg).filter(LegalAct.is_processed == True).all()}
-            nregs_to_process = [nreg for nreg in all_nregs if nreg not in processed_nregs]
-            
-            # Взяти перші N документів в порядку з сайту
-            nregs_to_download = nregs_to_process[:count]
-            
-            if not nregs_to_download:
-                logger.info("All documents already processed")
-                return
-            
-            logger.info(f"Downloading {len(nregs_to_download)} documents in order from Rada API")
-            
-            # Обробити кожен документ послідовно (щоб зберегти порядок)
-            processing_service = ProcessingService(bg_db)
-            processed = 0
-            failed = 0
-            
-            for nreg in nregs_to_download:
-                try:
-                    result = await processing_service.process_legal_act(nreg)
-                    if result and result.is_processed:
-                        processed += 1
-                        logger.info(f"Successfully processed {nreg} ({processed}/{len(nregs_to_download)})")
-                    else:
-                        failed += 1
-                        logger.warning(f"Failed to process {nreg}")
-                except Exception as e:
-                    failed += 1
-                    logger.error(f"Error processing {nreg}: {e}")
-                
-                # Коміт після кожного документа
-                try:
-                    bg_db.commit()
-                except Exception as e:
-                    logger.error(f"Error committing {nreg}: {e}")
-                    bg_db.rollback()
-            
-            logger.info(f"Auto-download complete: {processed} processed, {failed} failed")
-            
-        except Exception as e:
-            logger.error(f"Error in auto-download: {e}", exc_info=True)
-        finally:
-            bg_db.close()
-    
-    if background_tasks:
-        background_tasks.add_task(lambda: asyncio.run(download_and_process()))
-        return {
-            "message": f"Auto-download started for {count} documents",
-            "status": "queued",
-            "count": count
-        }
-    else:
-        # Синхронний виклик для тестування
-        asyncio.run(download_and_process())
-        return {
-            "message": f"Auto-download completed for {count} documents",
-            "status": "completed",
-            "count": count
-        }
-
-
-@router.post("/{nreg:path}/process")
+@router.post("/process")
 async def process_legal_act(
-    nreg: str = Path(..., description="Номер реєстрації акту"),
-    force_reprocess: bool = Query(False, description="Force reprocess even if already processed"),
-    background_tasks: BackgroundTasks = None,
+    nreg: str = Body(..., description="Номер реєстрації акту"),
+    force_reprocess: bool = Query(False, description="Переобробити навіть якщо вже оброблено"),
     db: Session = Depends(get_db)
 ):
-    """Process a legal act (download, extract elements, sync to DBs)"""
-    # Decode URL-encoded characters
-    nreg = unquote(nreg)
+    """
+    Process a legal act: download, extract elements, sync to both DBs
+    """
+    processing_service = ProcessingService(db)
     
-    # Check if OpenAI is configured
-    from app.core.config import settings
-    if not settings.OPENAI_API_KEY:
+    try:
+        result = await processing_service.process_legal_act(nreg, force_reprocess=force_reprocess)
+        
+        if result:
+            return {
+                "message": f"Act {nreg} processed successfully",
+                "nreg": result.nreg,
+                "title": result.title,
+                "is_processed": result.is_processed,
+                "processed_at": result.processed_at.isoformat() if result.processed_at else None
+            }
+        else:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Could not process act {nreg}. Act may not exist or could not be downloaded."
+            )
+    except Exception as e:
+        logger.error(f"Error processing act {nreg}: {e}", exc_info=True)
         raise HTTPException(
-            status_code=400,
-            detail="OpenAI API key is not configured. Please set OPENAI_API_KEY environment variable."
+            status_code=500,
+            detail=f"Error processing act: {str(e)}"
         )
-    
-    from app.core.database import SessionLocal
-    import asyncio
-    import logging
-    
-    logger = logging.getLogger(__name__)
-    
-    async def process():
-        # Create new session for background task
-        bg_db = SessionLocal()
-        try:
-            # Check if already processed (unless force_reprocess)
-            existing_act = bg_db.query(LegalAct).filter(LegalAct.nreg == nreg).first()
-            if existing_act and existing_act.is_processed and not force_reprocess:
-                logger.info(f"Act {nreg} already processed (is_processed=True), skipping. Use ?force_reprocess=true to reprocess")
-                return
-            
-            logger.info(f"Starting background processing for {nreg} (force_reprocess={force_reprocess})")
-            if existing_act:
-                logger.info(f"Act {nreg} exists: is_processed={existing_act.is_processed}, has_text={existing_act.text is not None}")
-            else:
-                logger.info(f"Act {nreg} not found in database, will download from Rada API")
-            bg_service = ProcessingService(bg_db)
-            result = await bg_service.process_legal_act(nreg, force_reprocess=force_reprocess)
-            if result:
-                logger.info(f"Successfully processed {nreg}")
-            else:
-                logger.warning(f"Processing failed for {nreg}")
-        except Exception as e:
-            logger.error(f"Error processing {nreg}: {e}", exc_info=True)
-        finally:
-            bg_db.close()
-    
-    if background_tasks:
-        background_tasks.add_task(lambda: asyncio.run(process()))
-        return {"message": f"Processing started for {nreg}", "status": "queued"}
-    else:
-        # If no background tasks, process synchronously (for testing)
-        import asyncio
-        asyncio.run(process())
-        return {"message": f"Processing completed for {nreg}", "status": "completed"}
 
 
-# This route must be LAST to avoid matching /check, /details, /process as part of nreg
 @router.get("/{nreg:path}", response_model=LegalActResponse)
-async def get_legal_act(nreg: str = Path(..., description="Номер реєстрації акту"), db: Session = Depends(get_db)):
-    """Get legal act by nreg"""
+async def get_legal_act(
+    nreg: str = Path(..., description="Номер реєстрації акту"),
+    db: Session = Depends(get_db)
+):
+    """Get legal act by NREG"""
     # Decode URL-encoded characters
     nreg = unquote(nreg)
     act = db.query(LegalAct).filter(LegalAct.nreg == nreg).first()
     if not act:
-        raise HTTPException(status_code=404, detail=f"Legal act not found: {nreg}")
-    return act
+        raise HTTPException(status_code=404, detail="Legal act not found")
+    
+    return LegalActResponse(
+        id=act.id,
+        nreg=act.nreg,
+        title=act.title,
+        is_processed=act.is_processed,
+        document_type=act.document_type,
+        status=act.status,
+        date_acceptance=act.date_acceptance.isoformat() if act.date_acceptance else None,
+        date_publication=act.date_publication.isoformat() if act.date_publication else None
+    )

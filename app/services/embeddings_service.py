@@ -121,11 +121,18 @@ class EmbeddingsService:
             
             # Add dimensions if specified (for text-embedding-3-large and text-embedding-3-small)
             # Only text-embedding-3-* models support dimensions parameter
-            if self.dimensions and ("text-embedding-3" in self.model):
+            # Check if model name contains "text-embedding-3" (case-insensitive)
+            model_lower = (self.model or "").lower()
+            supports_dimensions = "text-embedding-3" in model_lower
+            
+            if self.dimensions and supports_dimensions:
                 api_params["dimensions"] = self.dimensions
                 logger.debug(f"Adding dimensions={self.dimensions} for model {self.model}")
             else:
-                logger.debug(f"Skipping dimensions: model={self.model}, has_dimensions={bool(self.dimensions)}, check={'text-embedding-3' in self.model if self.model else False}")
+                if self.dimensions and not supports_dimensions:
+                    logger.debug(f"Skipping dimensions: model {self.model} does not support dimensions parameter")
+                else:
+                    logger.debug(f"Skipping dimensions: not specified or model doesn't support it")
             
             # Use batch API if requested and multiple texts
             if use_batch and len(texts) > 1:
@@ -171,7 +178,8 @@ class EmbeddingsService:
                 "embeddings": [],
                 "chunks": [],
                 "model": self.model,
-                "dimensions": self.dimensions
+                # Only add dimensions if model supports it
+                # "dimensions": self.dimensions  # Removed - check model support first
             }
         
         # Chunk the text
@@ -182,7 +190,8 @@ class EmbeddingsService:
                 "embeddings": [],
                 "chunks": [],
                 "model": self.model,
-                "dimensions": self.dimensions
+                # Only add dimensions if model supports it
+                # "dimensions": self.dimensions  # Removed - check model support first
             }
         
         # Prepare texts for embedding (prepend title if provided)

@@ -12,6 +12,7 @@ from app.services.openai_service import openai_service
 from app.services.neo4j_service import neo4j_service
 from pydantic import BaseModel
 import logging
+import re
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -31,19 +32,78 @@ class ChatResponse(BaseModel):
     relevant_categories: List[dict] = []
 
 
+def normalize_nreg_for_search(nreg: str) -> List[str]:
+    """Generate normalized variations of nreg for search (Cyrillic/Latin, case variations)"""
+    variations = [nreg]  # Original
+    
+    # Case variations
+    if nreg != nreg.upper():
+        variations.append(nreg.upper())
+    if nreg != nreg.lower():
+        variations.append(nreg.lower())
+    
+    # Cyrillic/Latin conversions for common letters
+    cyr_to_lat = {'к': 'k', 'К': 'K', 'в': 'v', 'В': 'V', 'р': 'r', 'Р': 'R', 'і': 'i', 'І': 'I', 'х': 'x', 'Х': 'X'}
+    lat_to_cyr = {v: k for k, v in cyr_to_lat.items()}
+    
+    # Convert Cyrillic to Latin
+    lat_nreg = nreg
+    for cyr, lat in cyr_to_lat.items():
+        lat_nreg = lat_nreg.replace(cyr, lat)
+    if lat_nreg != nreg and lat_nreg not in variations:
+        variations.append(lat_nreg)
+        variations.append(lat_nreg.upper())
+        variations.append(lat_nreg.lower())
+    
+    # Convert Latin to Cyrillic
+    cyr_nreg = nreg
+    for lat, cyr in lat_to_cyr.items():
+        cyr_nreg = cyr_nreg.replace(lat, cyr)
+    if cyr_nreg != nreg and cyr_nreg not in variations:
+        variations.append(cyr_nreg)
+        variations.append(cyr_nreg.upper())
+        variations.append(cyr_nreg.lower())
+    
+    return list(set(variations))  # Remove duplicates
+
+
 def search_relevant_acts(question: str, db: Session, limit: int = 10) -> List[Dict[str, Any]]:
     """Search for relevant legal acts based on question"""
     try:
+        # First, try to find exact nreg match (with normalization)
+        # Extract potential nreg from question (numbers with optional letters/dashes)
+        import re
+        nreg_pattern = r'\b\d+[-/]?[А-ЯІЇЄа-яіїєA-Za-z]+\b|\b\d+[-/]\d+\b'
+        potential_nregs = re.findall(nreg_pattern, question)
+        
+        exact_matches = []
+        if potential_nregs:
+            for potential_nreg in potential_nregs:
+                # Normalize and search
+                nreg_variations = normalize_nreg_for_search(potential_nreg)
+                for nreg_var in nreg_variations:
+                    act = db.query(LegalAct).filter(LegalAct.nreg == nreg_var).first()
+                    if act:
+                        exact_matches.append(act)
+                        logger.info(f"Found exact nreg match: {nreg_var} -> {act.nreg}")
+                        break
+        
         # Split question into keywords for better search
         keywords = question.lower().split()
         keywords = [kw for kw in keywords if len(kw) > 2]  # Filter short words
         
-        # Search in title and text
+        # Search in title and text (also try normalized nreg variations)
+        nreg_filters = [LegalAct.nreg.ilike(f"%{question}%")]
+        # Add normalized variations
+        nreg_variations = normalize_nreg_for_search(question)
+        for nreg_var in nreg_variations[:5]:  # Limit to avoid too many filters
+            nreg_filters.append(LegalAct.nreg.ilike(f"%{nreg_var}%"))
+        
         acts = db.query(LegalAct).filter(
             or_(
                 *[LegalAct.title.ilike(f"%{kw}%") for kw in keywords],
                 *[LegalAct.text.ilike(f"%{kw}%") for kw in keywords],
-                LegalAct.nreg.ilike(f"%{question}%")
+                *nreg_filters
             )
         ).limit(limit * 2).all()  # Get more to filter by relevance
         
@@ -61,8 +121,8 @@ def search_relevant_acts(question: str, db: Session, limit: int = 10) -> List[Di
                 if any(kw in elements_str for kw in keywords):
                     relevant_processed.append(act)
         
-        # Combine and deduplicate
-        all_acts = list(acts) + relevant_processed
+        # Combine and deduplicate (exact matches first, then others)
+        all_acts = exact_matches + list(acts) + relevant_processed
         seen_nregs = set()
         unique_acts = []
         for act in all_acts:

@@ -646,13 +646,27 @@ class RadaAPIService:
         """
         Get specific dataset from open data portal
         Format: json, csv, xml
+        
+        Supports multiple URL patterns:
+        - https://data.rada.gov.ua/open/data/{dataset_id}.{format}
+        - https://data.rada.gov.ua/ogd/zak/{dataset_id}/list.{format}
         """
         await self._rate_limit()
         
         try:
             async with httpx.AsyncClient() as client:
-                url = f"https://data.rada.gov.ua/open/data/{dataset_id}.{format}"
+                # Try multiple URL patterns
+                urls_to_try = [
+                    f"https://data.rada.gov.ua/open/data/{dataset_id}.{format}",
+                    f"https://data.rada.gov.ua/ogd/zak/{dataset_id}/list.{format}",
+                    f"https://data.rada.gov.ua/ogd/zak/{dataset_id}.{format}",
+                ]
+                
                 headers = self._get_headers(use_token=False)
+                
+                for url in urls_to_try:
+                    try:
+                        logger.debug(f"Trying to fetch dataset from {url}")
                 
                 # Add If-Modified-Since header if we have cached version
                 # (for future optimization)
@@ -767,10 +781,14 @@ class RadaAPIService:
         logger.warning("❌ Could not find legal acts dataset ID in catalog. You may need to specify RADA_OPEN_DATA_DATASET_ID manually.")
         return None
     
-    async def get_all_nregs_from_open_data(self, dataset_id: Optional[str] = None) -> List[str]:
+    async def get_all_nregs_from_open_data(self, dataset_id: Optional[str] = None, limit: Optional[int] = None) -> List[str]:
         """
         Get all NREG identifiers from open data portal
         This is the preferred method as it uses structured API
+        
+        Args:
+            dataset_id: Dataset ID (e.g., "laws", "docs", "dict"). If None, will try to find automatically
+            limit: Optional limit on number of NREGs to return
         """
         if not dataset_id:
             # Try configured dataset ID first
@@ -785,6 +803,20 @@ class RadaAPIService:
             return []
         
         logger.info(f"Fetching legal acts from open data portal, dataset ID: {dataset_id}")
+        
+        # Special handling for "laws" registry - it contains sub-datasets
+        # The actual documents are in "docs" sub-dataset
+        if dataset_id == "laws":
+            logger.info("Dataset 'laws' is a registry. Trying to fetch from 'docs' sub-dataset...")
+            # Try "docs" sub-dataset which contains document cards
+            docs_dataset = await self.get_open_data_dataset("docs", format="json")
+            if docs_dataset:
+                nregs = self._extract_nregs_from_dataset(docs_dataset)
+                if nregs:
+                    logger.info(f"✅ Successfully extracted {len(nregs)} NREGs from 'docs' dataset")
+                    if limit and len(nregs) > limit:
+                        return nregs[:limit]
+                    return nregs
         
         # Try JSON format first
         dataset = await self.get_open_data_dataset(dataset_id, format="json")

@@ -656,6 +656,12 @@ async def download_active_acts(
                 
                 for nreg in batch:
                     try:
+                        # Валідувати NREG перед обробкою
+                        if not rada_api._is_valid_nreg(nreg):
+                            logger.debug(f"Skipping invalid NREG: {nreg}")
+                            skipped_inactive += 1
+                            continue
+                        
                         # Перевірити статус
                         card = await rada_api.get_document_card(nreg)
                         

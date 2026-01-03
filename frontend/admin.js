@@ -1029,6 +1029,11 @@ function switchTab(tab) {
 
     document.querySelector(`[data-tab="${tab}"]`).classList.add('active');
     document.getElementById(`${tab}-tab`).classList.add('active');
+    
+    // Load database schema when switching to database tab
+    if (tab === 'database') {
+        loadDatabaseSchema();
+    }
 }
 
 // Get status icon
@@ -1158,6 +1163,175 @@ if (!document.getElementById('notification-styles')) {
         }
     `;
     document.head.appendChild(style);
+}
+
+// Load database schema
+async function loadDatabaseSchema() {
+    const container = document.getElementById('database-schema');
+    container.innerHTML = '<p class="loading">Завантаження схеми бази даних...</p>';
+    
+    try {
+        const response = await fetch(`${API_BASE}/status/database-schema`);
+        const data = await response.json();
+        
+        if (data.error) {
+            container.innerHTML = `<div class="error-state">Помилка: ${escapeHtml(data.error)}</div>`;
+            return;
+        }
+        
+        renderDatabaseSchema(data);
+    } catch (error) {
+        console.error('Error loading database schema:', error);
+        container.innerHTML = `<div class="error-state">Помилка завантаження схеми: ${escapeHtml(error.message)}</div>`;
+    }
+}
+
+// Render database schema
+function renderDatabaseSchema(data) {
+    const container = document.getElementById('database-schema');
+    
+    let html = `
+        <div class="db-schema-header">
+            <h2>🗄️ Схема бази даних</h2>
+            <div class="db-info">
+                <span class="db-type">Тип: ${escapeHtml(data.database_type || 'unknown')}</span>
+                <span class="db-tables-count">Таблиць: ${data.tables?.length || 0}</span>
+            </div>
+        </div>
+        
+        <div class="db-stats-overview">
+            <h3>📊 Загальна статистика</h3>
+            <div class="stats-grid">
+    `;
+    
+    // Add relationship stats
+    if (data.relationships) {
+        html += `
+            <div class="stat-card">
+                <div class="stat-label">Зв'язки Категорія → Підмножина</div>
+                <div class="stat-value">${data.relationships.category_to_subset || 0}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Зв'язки Підмножина → Акт</div>
+                <div class="stat-value">${data.relationships.subset_to_act || 0}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Зв'язки Акт → Категорія</div>
+                <div class="stat-value">${data.relationships.act_to_category || 0}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Зв'язки Акт → Акт</div>
+                <div class="stat-value">${data.relationships.act_to_act || 0}</div>
+            </div>
+        `;
+    }
+    
+    html += `</div></div>`;
+    
+    // Render each table
+    if (data.tables && data.tables.length > 0) {
+        html += '<div class="tables-section"><h3>📋 Таблиці</h3>';
+        
+        for (const tableName of data.tables) {
+            const schema = data.schemas[tableName] || {};
+            const stats = data.statistics[tableName] || {};
+            
+            html += `
+                <div class="table-card">
+                    <div class="table-header">
+                        <h4>${escapeHtml(tableName)}</h4>
+                        ${stats.count !== undefined ? `<span class="table-count">${stats.count} записів</span>` : ''}
+                    </div>
+                    
+                    ${stats.error ? `
+                        <div class="error-message">Помилка: ${escapeHtml(stats.error)}</div>
+                    ` : ''}
+                    
+                    ${stats.processed !== undefined ? `
+                        <div class="table-stats">
+                            <span>Оброблено: ${stats.processed}</span>
+                            <span>Не оброблено: ${stats.not_processed || 0}</span>
+                            ${stats.with_text !== undefined ? `<span>З текстом: ${stats.with_text}</span>` : ''}
+                            ${stats.with_embeddings !== undefined ? `<span>З embeddings: ${stats.with_embeddings}</span>` : ''}
+                        </div>
+                    ` : ''}
+                    
+                    ${stats.by_type ? `
+                        <div class="relation-types">
+                            <strong>Типи зв'язків:</strong>
+                            ${Object.entries(stats.by_type).map(([type, count]) => 
+                                `<span class="relation-type-badge">${escapeHtml(type)}: ${count}</span>`
+                            ).join('')}
+                        </div>
+                    ` : ''}
+                    
+                    <div class="table-schema">
+                        <h5>Колонки:</h5>
+                        <table class="schema-table">
+                            <thead>
+                                <tr>
+                                    <th>Назва</th>
+                                    <th>Тип</th>
+                                    <th>Nullable</th>
+                                    <th>Default</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${(schema.columns || []).map(col => `
+                                    <tr>
+                                        <td><code>${escapeHtml(col.name)}</code></td>
+                                        <td><span class="type-badge">${escapeHtml(col.type)}</span></td>
+                                        <td>${col.nullable ? '✅' : '❌'}</td>
+                                        <td>${col.default ? `<code>${escapeHtml(col.default)}</code>` : '-'}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    ${(schema.foreign_keys || []).length > 0 ? `
+                        <div class="foreign-keys">
+                            <h5>Зовнішні ключі:</h5>
+                            <ul>
+                                ${schema.foreign_keys.map(fk => `
+                                    <li>
+                                        <code>${escapeHtml(fk.constrained_columns.join(', '))}</code> 
+                                        → <code>${escapeHtml(fk.referred_table)}.${escapeHtml(fk.referred_columns.join(', '))}</code>
+                                    </li>
+                                `).join('')}
+                            </ul>
+                        </div>
+                    ` : ''}
+                    
+                    ${(schema.indexes || []).length > 0 ? `
+                        <div class="indexes">
+                            <h5>Індекси:</h5>
+                            <ul>
+                                ${schema.indexes.map(idx => `
+                                    <li>
+                                        <code>${escapeHtml(idx.name)}</code> 
+                                        на <code>${escapeHtml(idx.columns.join(', '))}</code>
+                                        ${idx.unique ? '<span class="unique-badge">UNIQUE</span>' : ''}
+                                    </li>
+                                `).join('')}
+                            </ul>
+                        </div>
+                    ` : ''}
+                    
+                    ${stats.sample && stats.sample.length > 0 ? `
+                        <div class="sample-data">
+                            <h5>Приклад даних (${stats.sample.length} записів):</h5>
+                            <pre class="sample-json">${JSON.stringify(stats.sample, null, 2)}</pre>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+        
+        html += '</div>';
+    }
+    
+    container.innerHTML = html;
 }
 
 // Make functions available globally

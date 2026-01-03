@@ -3,11 +3,14 @@ API endpoints for system status
 """
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
+from sqlalchemy import func, inspect
 from app.core.database import get_db, engine
 from app.models.category import Category
-from app.models.legal_act import LegalAct
+from app.models.legal_act import LegalAct, ActCategory, ActRelation
+from app.models.subset import Subset
 from app.core.config import settings
 from app.core.neo4j_db import neo4j_driver
+from typing import Dict, Any
 
 router = APIRouter()
 
@@ -131,4 +134,146 @@ async def get_status(db: Session = Depends(get_db)):
         return {
             "status": "error",
             "error": str(e)
+        }
+
+
+@router.get("/database-schema")
+async def get_database_schema(db: Session = Depends(get_db)) -> Dict[str, Any]:
+    """Get detailed database schema and statistics"""
+    try:
+        inspector = inspect(engine)
+        tables = inspector.get_table_names()
+        
+        # Get table schemas
+        table_schemas = {}
+        for table_name in tables:
+            columns = inspector.get_columns(table_name)
+            foreign_keys = inspector.get_foreign_keys(table_name)
+            indexes = inspector.get_indexes(table_name)
+            
+            table_schemas[table_name] = {
+                "columns": [
+                    {
+                        "name": col["name"],
+                        "type": str(col["type"]),
+                        "nullable": col["nullable"],
+                        "default": str(col.get("default", ""))
+                    }
+                    for col in columns
+                ],
+                "foreign_keys": [
+                    {
+                        "name": fk["name"],
+                        "constrained_columns": fk["constrained_columns"],
+                        "referred_table": fk["referred_table"],
+                        "referred_columns": fk["referred_columns"]
+                    }
+                    for fk in foreign_keys
+                ],
+                "indexes": [
+                    {
+                        "name": idx["name"],
+                        "columns": idx["column_names"],
+                        "unique": idx["unique"]
+                    }
+                    for idx in indexes
+                ]
+            }
+        
+        # Get statistics for each table
+        stats = {}
+        for table_name in tables:
+            try:
+                if table_name == "categories":
+                    stats[table_name] = {
+                        "count": db.query(Category).count(),
+                        "sample": [
+                            {"id": c.id, "name": c.name, "element_count": c.element_count}
+                            for c in db.query(Category).limit(5).all()
+                        ]
+                    }
+                elif table_name == "legal_acts":
+                    total = db.query(LegalAct).count()
+                    processed = db.query(LegalAct).filter(LegalAct.is_processed == True).count()
+                    stats[table_name] = {
+                        "count": total,
+                        "processed": processed,
+                        "not_processed": total - processed,
+                        "with_text": db.query(LegalAct).filter(LegalAct.text.isnot(None)).count(),
+                        "with_embeddings": db.query(LegalAct).filter(LegalAct.embeddings.isnot(None)).count(),
+                        "sample": [
+                            {
+                                "id": a.id,
+                                "nreg": a.nreg,
+                                "title": a.title[:100] + "..." if len(a.title) > 100 else a.title,
+                                "is_processed": a.is_processed
+                            }
+                            for a in db.query(LegalAct).limit(5).all()
+                        ]
+                    }
+                elif table_name == "subsets":
+                    stats[table_name] = {
+                        "count": db.query(Subset).count(),
+                        "sample": [
+                            {"id": s.id, "name": s.name, "category_id": s.category_id}
+                            for s in db.query(Subset).limit(5).all()
+                        ]
+                    }
+                elif table_name == "act_categories":
+                    stats[table_name] = {
+                        "count": db.query(ActCategory).count(),
+                        "sample": [
+                            {"id": ac.id, "act_id": ac.act_id, "category_id": ac.category_id, "confidence": ac.confidence}
+                            for ac in db.query(ActCategory).limit(5).all()
+                        ]
+                    }
+                elif table_name == "act_relations":
+                    stats[table_name] = {
+                        "count": db.query(ActRelation).count(),
+                        "by_type": {
+                            rel_type: db.query(ActRelation).filter(ActRelation.relation_type == rel_type).count()
+                            for rel_type in db.query(ActRelation.relation_type).distinct().all()
+                        },
+                        "sample": [
+                            {
+                                "id": r.id,
+                                "source_act_id": r.source_act_id,
+                                "target_act_id": r.target_act_id,
+                                "relation_type": r.relation_type
+                            }
+                            for r in db.query(ActRelation).limit(5).all()
+                        ]
+                    }
+                else:
+                    # Generic count for other tables
+                    result = db.execute(f"SELECT COUNT(*) FROM {table_name}")
+                    stats[table_name] = {
+                        "count": result.scalar()
+                    }
+            except Exception as e:
+                stats[table_name] = {
+                    "error": str(e)
+                }
+        
+        # Get relationships summary
+        relationships = {
+            "category_to_subset": db.query(Subset).count(),
+            "subset_to_act": db.query(LegalAct).filter(LegalAct.subset_id.isnot(None)).count(),
+            "act_to_category": db.query(ActCategory).count(),
+            "act_to_act": db.query(ActRelation).count()
+        }
+        
+        return {
+            "tables": list(tables),
+            "schemas": table_schemas,
+            "statistics": stats,
+            "relationships": relationships,
+            "database_type": "postgresql" if "postgresql" in str(engine.url) else "sqlite"
+        }
+    except Exception as e:
+        return {
+            "error": str(e),
+            "tables": [],
+            "schemas": {},
+            "statistics": {}
         }

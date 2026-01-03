@@ -103,24 +103,49 @@ class OpenAIService:
         # 4. Стаття (Article) - most common
         article_pattern = re.compile(r'\n\s*(?:Стаття|Статья|Article|СТАТТЯ|СТАТЬЯ)\s+\d+[\.\s]', re.IGNORECASE)
         
-        # Find all article boundaries
+        # Find all structural boundaries (try sections, parts, subsections, then articles)
+        section_matches = list(section_pattern.finditer(text))
+        part_matches = list(part_pattern.finditer(text))
+        subsection_matches = list(subsection_pattern.finditer(text))
         article_matches = list(article_pattern.finditer(text))
         
-        if len(article_matches) > 1:
-            # Split by articles if we have multiple articles
-            logger.info(f"Found {len(article_matches)} article boundaries, splitting by articles")
+        # Choose the most appropriate structure level
+        # Priority: Sections > Parts > Subsections > Articles
+        structure_matches = []
+        structure_name = ""
+        
+        if len(section_matches) > 1:
+            structure_matches = section_matches
+            structure_name = "розділів"
+        elif len(part_matches) > 1:
+            structure_matches = part_matches
+            structure_name = "частин"
+        elif len(subsection_matches) > 1:
+            structure_matches = subsection_matches
+            structure_name = "підрозділів"
+        elif len(article_matches) > 1:
+            structure_matches = article_matches
+            structure_name = "статей"
+        elif len(article_matches) == 1 or (always_split_by_structure and len(article_matches) >= 1):
+            # Even single article - split it if always_split_by_structure is True
+            structure_matches = article_matches
+            structure_name = "статей"
+        
+        if structure_matches:
+            # Split by structure (sections/parts/subsections/articles)
+            logger.info(f"Found {len(structure_matches)} {structure_name} boundaries, splitting by structure")
             
-            for i, match in enumerate(article_matches):
-                article_start = match.start()
+            for i, match in enumerate(structure_matches):
+                structure_start = match.start()
                 
                 # If this chunk would be too large, split it
-                if article_start - start > max_chunk_size and start < article_start:
-                    # Need to split before this article
-                    while start < article_start:
-                        end = min(start + max_chunk_size, article_start)
+                if structure_start - start > max_chunk_size and start < structure_start:
+                    # Need to split before this structural unit
+                    while start < structure_start:
+                        end = min(start + max_chunk_size, structure_start)
                         
                         # Try to break at sentence boundary
-                        if end < article_start:
+                        if end < structure_start:
                             search_start = max(start, end - 500)
                             for j in range(end - 1, search_start, -1):
                                 if text[j] in ['.', '!', '?', '\n']:
@@ -187,7 +212,7 @@ class OpenAIService:
                         chunk_index += 1
                     start = structure_end
             
-            # Handle remaining text after last article
+            # Handle remaining text after last structural unit
             if start < len(text):
                 remaining_text = text[start:].strip()
                 if remaining_text:

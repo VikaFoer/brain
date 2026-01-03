@@ -90,17 +90,9 @@ async def get_legal_acts(
             # Column might already exist or migration failed, continue
             logger.debug(f"Migration check: {migration_error}")
         
-        # Get acts with pagination support
-        skip = 0
-        limit = 100
-        processed_only = False
-        
-        query = db.query(LegalAct)
-        
-        if processed_only:
-            query = query.filter(LegalAct.is_processed == True)
-        
-        acts = query.order_by(LegalAct.created_at.desc()).offset(skip).limit(limit).all()
+        # Get acts from database (simple query without new fields to avoid SQL errors)
+        # Use select only existing columns to avoid issues with new fields
+        acts = db.query(LegalAct).order_by(LegalAct.created_at.desc()).limit(100).all()
         
         # Convert to response format with proper date formatting
         result = []

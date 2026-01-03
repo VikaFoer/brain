@@ -911,31 +911,49 @@ class RadaAPIService:
         if isinstance(dataset, list):
             for item in dataset:
                 if isinstance(item, dict):
-                    # Try common field names for NREG
-                    nreg = (item.get("nreg") or item.get("NREG") or 
-                           item.get("number") or item.get("id") or 
-                           item.get("identifier") or item.get("code") or
-                           item.get("nreg_id") or item.get("document_id") or
-                           item.get("doc_id"))
-                    if nreg:
-                        nreg_str = str(nreg).strip()
-                        if self._is_valid_nreg(nreg_str):
-                            nregs.append(nreg_str)
+                    # Try common field names for NREG (prioritize nreg field)
+                    # Check all possible field names
+                    nreg = None
+                    for field_name in ["nreg", "NREG", "nreg_id", "document_id", "doc_id", 
+                                      "number", "id", "identifier", "code", "nreg_number",
+                                      "document_number", "act_number", "law_number"]:
+                        if field_name in item:
+                            value = item[field_name]
+                            if value:
+                                nreg_str = str(value).strip()
+                                if self._is_valid_nreg(nreg_str):
+                                    nregs.append(nreg_str)
+                                    nreg = nreg_str  # Found valid NREG
+                                    break
+                    
+                    # If no valid NREG found, log for debugging
+                    if not nreg and len(item) > 0:
+                        # Only log first few items to avoid spam
+                        if len(nregs) < 3:
+                            logger.debug(f"Item without valid NREG, keys: {list(item.keys())[:10]}, sample: {str(item)[:150]}")
         elif isinstance(dataset, dict):
             # If dataset is a dict, it might contain a list in a field
             for key in ["data", "items", "results", "documents", "acts", "docs", "list"]:
                 if key in dataset and isinstance(dataset[key], list):
                     for item in dataset[key]:
                         if isinstance(item, dict):
-                            nreg = (item.get("nreg") or item.get("NREG") or 
-                                   item.get("number") or item.get("id") or 
-                                   item.get("identifier") or item.get("code") or
-                                   item.get("nreg_id") or item.get("document_id") or
-                                   item.get("doc_id"))
-                            if nreg:
-                                nreg_str = str(nreg).strip()
-                                if self._is_valid_nreg(nreg_str):
-                                    nregs.append(nreg_str)
+                            # Try all possible field names
+                            nreg = None
+                            for field_name in ["nreg", "NREG", "nreg_id", "document_id", "doc_id", 
+                                              "number", "id", "identifier", "code", "nreg_number",
+                                              "document_number", "act_number", "law_number"]:
+                                if field_name in item:
+                                    value = item[field_name]
+                                    if value:
+                                        nreg_str = str(value).strip()
+                                        if self._is_valid_nreg(nreg_str):
+                                            nregs.append(nreg_str)
+                                            nreg = nreg_str  # Found valid NREG
+                                            break
+                            
+                            # If no valid NREG found, log for debugging (only first few)
+                            if not nreg and len(nregs) < 3:
+                                logger.debug(f"Item in '{key}' without valid NREG, keys: {list(item.keys())[:10]}")
             # Or the dict itself might have nreg
             nreg = (dataset.get("nreg") or dataset.get("NREG") or 
                    dataset.get("number") or dataset.get("id"))
@@ -949,16 +967,31 @@ class RadaAPIService:
         
         if not unique_nregs:
             # Log structure for debugging
+            logger.warning("Could not extract NREG identifiers from dataset structure")
             if isinstance(dataset, dict):
-                logger.debug(f"Dataset keys: {list(dataset.keys())[:10]}")
+                logger.debug(f"Dataset type: dict, keys: {list(dataset.keys())[:10]}")
                 if len(dataset) > 0:
                     first_key = list(dataset.keys())[0]
-                    if isinstance(dataset.get(first_key), list) and len(dataset[first_key]) > 0:
-                        first_item = dataset[first_key][0]
+                    first_value = dataset.get(first_key)
+                    logger.debug(f"First key '{first_key}' type: {type(first_value)}")
+                    if isinstance(first_value, list) and len(first_value) > 0:
+                        first_item = first_value[0]
                         if isinstance(first_item, dict):
                             logger.debug(f"First item keys: {list(first_item.keys())[:10]}")
-            elif isinstance(dataset, list) and len(dataset) > 0:
-                logger.debug(f"First item keys: {list(dataset[0].keys())[:10] if isinstance(dataset[0], dict) else 'Not a dict'}")
+                            logger.debug(f"First item sample: {str(first_item)[:200]}")
+                    elif isinstance(first_value, dict):
+                        logger.debug(f"First value (dict) keys: {list(first_value.keys())[:10]}")
+            elif isinstance(dataset, list):
+                logger.debug(f"Dataset type: list, length: {len(dataset)}")
+                if len(dataset) > 0:
+                    first_item = dataset[0]
+                    if isinstance(first_item, dict):
+                        logger.debug(f"First item keys: {list(first_item.keys())[:10]}")
+                        logger.debug(f"First item sample: {str(first_item)[:200]}")
+                    else:
+                        logger.debug(f"First item type: {type(first_item)}, value: {str(first_item)[:200]}")
+            else:
+                logger.debug(f"Dataset type: {type(dataset)}")
         
         return unique_nregs
     

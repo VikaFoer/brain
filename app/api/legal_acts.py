@@ -708,16 +708,16 @@ async def sync_all_rada_acts(
         """Background task для завантаження всіх НПА"""
         bg_db = SessionLocal()
         try:
-            logger.info("Starting sync of ALL legal acts from Rada API...")
+            logger.info("Starting sync of ALL legal acts from open data dataset...")
             
-            # Get all NREGs from Rada API (without limit)
-            all_nregs = await rada_api.get_all_documents_list(limit=None)
+            # Get all documents from dataset (without NREG filtering)
+            all_documents = await rada_api.get_all_documents_from_dataset(limit=None)
             
-            if not all_nregs:
-                logger.error("No documents found from Rada API")
+            if not all_documents:
+                logger.error("No documents found in dataset")
                 return
             
-            logger.info(f"Found {len(all_nregs)} total documents from Rada API")
+            logger.info(f"Found {len(all_documents)} total documents in dataset")
             
             # Get existing NREGs from database
             existing_nregs = {act.nreg for act in bg_db.query(LegalAct.nreg).all()}
@@ -727,7 +727,15 @@ async def sync_all_rada_acts(
             updated = 0
             skipped = 0
             
-            for nreg in all_nregs:
+            for doc in all_documents:
+                # Extract NREG from document
+                nreg = (doc.get("nreg") or doc.get("NREG") or 
+                       doc.get("id") or doc.get("number") or 
+                       doc.get("identifier") or f"doc_{created}")
+                
+                # Extract title
+                title = (doc.get("title") or doc.get("name") or 
+                        doc.get("Title") or doc.get("Name") or nreg)
                 try:
                     # Validate NREG before processing
                     if not rada_api._is_valid_nreg(nreg):
@@ -852,11 +860,11 @@ async def download_active_acts(
         try:
             logger.info("🚀 Початок завантаження ДІЮЧИХ нормативно-правових актів...")
             
-            # Отримати всі NREG
-            all_nregs = []
+            # Отримати всі документи з датасету (без фільтрації по NREG)
+            all_documents = []
             try:
-                logger.info("Спроба отримати через open data portal API...")
-                all_nregs = await rada_api.get_all_nregs_from_open_data()
+                logger.info("Спроба отримати документи через open data portal API...")
+                all_documents = await rada_api.get_all_documents_from_dataset()
                 if all_nregs:
                     logger.info(f"✅ Отримано {len(all_nregs)} NREG через open data portal")
             except Exception as e:
@@ -894,19 +902,15 @@ async def download_active_acts(
                         
                         # Перевірити статус
                         card = await rada_api.get_document_card(nreg)
-                        
-                        if card:
-                            status = card.get("status") or card.get("Статус") or card.get("статус")
-                            
-                            if not is_active_status(status):
-                                skipped_inactive += 1
-                                continue
-                            
-                            title = card.get("title", nreg)
-                        else:
-                            # Якщо не вдалося отримати картку, вважаємо діючим
-                            title = nreg
-                            status = None
+                    
+                    # Check if status is active
+                    if not is_active_status(status):
+                        skipped_inactive += 1
+                        continue
+                    
+                    # Extract title
+                    title = (doc.get("title") or doc.get("name") or 
+                            doc.get("Title") or doc.get("Name") or nreg)
                         
                         # Створити або оновити акт
                         existing_act = bg_db.query(LegalAct).filter(LegalAct.nreg == nreg).first()

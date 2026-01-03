@@ -451,6 +451,40 @@ async def get_rada_acts_list(
     logger = logging.getLogger(__name__)
     
     try:
+        # Ensure migration is complete before querying
+        from app.core.database import Base, engine
+        Base.metadata.create_all(bind=engine)
+        
+        # Try to add new columns if they don't exist
+        try:
+            from sqlalchemy import inspect, text
+            inspector = inspect(engine)
+            columns = [col['name'] for col in inspector.get_columns('legal_acts')]
+            
+            if 'dataset_id' not in columns:
+                logger.warning("Column 'dataset_id' not found, adding it...")
+                with engine.connect() as conn:
+                    conn.execute(text("ALTER TABLE legal_acts ADD COLUMN IF NOT EXISTS dataset_id VARCHAR(100)"))
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_legal_acts_dataset_id ON legal_acts(dataset_id)"))
+                    conn.commit()
+                logger.info("Column 'dataset_id' added successfully")
+            
+            if 'dataset_metadata' not in columns:
+                logger.warning("Column 'dataset_metadata' not found, adding it...")
+                with engine.connect() as conn:
+                    conn.execute(text("ALTER TABLE legal_acts ADD COLUMN IF NOT EXISTS dataset_metadata JSON"))
+                    conn.commit()
+                logger.info("Column 'dataset_metadata' added successfully")
+            
+            if 'source' not in columns:
+                logger.warning("Column 'source' not found, adding it...")
+                with engine.connect() as conn:
+                    conn.execute(text("ALTER TABLE legal_acts ADD COLUMN IF NOT EXISTS source VARCHAR(50) DEFAULT 'rada_api'"))
+                    conn.commit()
+                logger.info("Column 'source' added successfully")
+        except Exception as migration_error:
+            logger.debug(f"Migration check: {migration_error}")
+        
         # Get all acts from database (no API calls for NREG extraction)
         all_acts = db.query(LegalAct).order_by(LegalAct.created_at.desc()).all()
         

@@ -582,33 +582,44 @@ function renderRadaActsList() {
         container.appendChild(listContainer);
     }
     
-    // Render all acts
+    // Render all acts with improved status display
     listContainer.innerHTML = radaActsList.map(act => {
-        const statusClass = act.status === 'processed' ? 'status-processed' 
-            : act.status === 'loaded' ? 'status-loaded' 
-            : 'status-not-loaded';
-        const statusIcon = act.status === 'processed' ? '✅' 
-            : act.status === 'loaded' ? '📥' 
-            : '⭕';
-        const statusText = act.status === 'processed' ? 'Оброблено' 
-            : act.status === 'loaded' ? 'Завантажено' 
-            : 'Не завантажено';
+        // Determine status based on in_database and is_processed
+        let statusClass, statusIcon, statusBadge;
+        
+        if (act.is_processed) {
+            statusClass = 'status-processed';
+            statusIcon = '✅';
+            statusBadge = '<span class="status-badge badge-processed">Оброблено</span>';
+        } else if (act.in_database) {
+            statusClass = 'status-loaded';
+            statusIcon = '📥';
+            statusBadge = '<span class="status-badge badge-loaded">Завантажено</span>';
+        } else {
+            statusClass = 'status-not-loaded';
+            statusIcon = '⭕';
+            statusBadge = '<span class="status-badge badge-not-loaded">Не завантажено</span>';
+        }
+        
+        // Show status from Rada API if available
+        const radaStatus = act.status ? `<span class="rada-status">Статус: ${escapeHtml(act.status)}</span>` : '';
         
         return `
-            <div class="rada-act-item ${statusClass}">
+            <div class="rada-act-item ${statusClass}" data-nreg="${escapeHtml(act.nreg)}">
                 <div class="rada-act-info">
                     <div class="rada-act-nreg">${escapeHtml(act.nreg)}</div>
                     ${act.title && act.title !== act.nreg ? `
                         <div class="rada-act-title">${escapeHtml(act.title)}</div>
                     ` : ''}
+                    ${radaStatus}
                 </div>
                 <div class="rada-act-status">
                     <span class="status-icon">${statusIcon}</span>
-                    <span class="status-text">${statusText}</span>
+                    ${statusBadge}
                 </div>
-                ${act.status !== 'processed' ? `
+                ${!act.is_processed ? `
                     <button class="btn btn-sm btn-success process-act-btn" data-nreg="${escapeHtml(act.nreg)}">
-                        <span>⚙️</span> Опрацювати
+                        <span>⚙️</span> ${act.in_database ? 'Обробити' : 'Завантажити та обробити'}
                     </button>
                 ` : ''}
             </div>
@@ -1068,6 +1079,23 @@ function switchTab(tab) {
     if (tab === 'database') {
         loadDatabaseSchema();
     }
+    
+    // Load Rada list when switching to rada-list tab
+    if (tab === 'rada-list') {
+        loadRadaActsList(true);
+        // Start auto-refresh when tab is active
+        if (!radaListRefreshInterval) {
+            radaListRefreshInterval = setInterval(() => {
+                loadRadaActsList(false); // Don't reset, just update
+            }, 10000); // Refresh every 10 seconds
+        }
+    } else {
+        // Stop auto-refresh when tab is not active
+        if (radaListRefreshInterval) {
+            clearInterval(radaListRefreshInterval);
+            radaListRefreshInterval = null;
+        }
+    }
 }
 
 // Get status icon
@@ -1084,6 +1112,170 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+// Download active acts function
+async function downloadActiveActs(process = false) {
+    const btn = process 
+        ? document.getElementById('download-active-and-process-btn')
+        : document.getElementById('download-active-acts-btn');
+    
+    if (!btn) {
+        console.error('Download active acts button not found!');
+        return;
+    }
+    
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span>⏳</span> Запуск...';
+    
+    // Show progress bar
+    const progressContainer = document.getElementById('download-progress-container');
+    const progressBar = document.getElementById('progress-bar-fill');
+    const progressText = document.getElementById('progress-text');
+    const progressPercent = document.getElementById('progress-percent');
+    const progressDetails = document.getElementById('progress-details');
+    
+    if (progressContainer) {
+        progressContainer.style.display = 'block';
+        progressBar.style.width = '0%';
+        progressPercent.textContent = '0%';
+        progressText.textContent = process ? 'Завантаження та обробка діючих НПА...' : 'Завантаження діючих НПА...';
+        progressDetails.innerHTML = '';
+    }
+    
+    try {
+        const url = `${API_BASE}/legal-acts/download-active-acts?process=${process}`;
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+            throw new Error(errorData.detail || `HTTP ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        // Update progress
+        if (progressContainer) {
+            progressText.textContent = data.message || 'Завантаження запущено в фоновому режимі';
+            progressBar.style.width = '10%';
+            progressPercent.textContent = '10%';
+            progressDetails.innerHTML = '<p>⏳ Завантаження почалося. Перевіряйте прогрес нижче...</p>';
+        }
+        
+        // Start polling for progress
+        startProgressPolling();
+        
+        // Refresh list after a delay
+        setTimeout(() => {
+            loadRadaActsList(true);
+        }, 2000);
+        
+    } catch (error) {
+        console.error('Error downloading active acts:', error);
+        if (progressContainer) {
+            progressText.textContent = `❌ Помилка: ${error.message}`;
+            progressBar.style.width = '0%';
+        }
+        showNotification('error', `❌ Помилка: ${error.message}`, 5000);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+
+// Poll for download progress
+let progressPollingInterval = null;
+function startProgressPolling() {
+    // Clear existing interval
+    if (progressPollingInterval) {
+        clearInterval(progressPollingInterval);
+    }
+    
+    // Poll every 5 seconds
+    progressPollingInterval = setInterval(async () => {
+        try {
+            // Get current stats
+            const statsResponse = await fetch(`${API_BASE}/legal-acts/rada-list?skip=0&limit=1`);
+            if (statsResponse.ok) {
+                const stats = await statsResponse.json();
+                updateProgressBar(stats);
+            }
+        } catch (error) {
+            console.error('Error polling progress:', error);
+        }
+    }, 5000);
+    
+    // Stop polling after 10 minutes
+    setTimeout(() => {
+        if (progressPollingInterval) {
+            clearInterval(progressPollingInterval);
+            progressPollingInterval = null;
+        }
+    }, 600000);
+}
+
+// Update progress bar based on stats
+function updateProgressBar(stats) {
+    const progressBar = document.getElementById('progress-bar-fill');
+    const progressPercent = document.getElementById('progress-percent');
+    const progressText = document.getElementById('progress-text');
+    const progressDetails = document.getElementById('progress-details');
+    
+    if (!progressBar || !stats) return;
+    
+    const total = stats.total || 0;
+    const loaded = stats.loaded || 0;
+    const processed = stats.processed || 0;
+    
+    if (total > 0) {
+        const loadedPercent = Math.round((loaded / total) * 100);
+        const processedPercent = Math.round((processed / total) * 100);
+        
+        progressBar.style.width = `${loadedPercent}%`;
+        progressPercent.textContent = `${loadedPercent}%`;
+        progressText.textContent = `Завантажено: ${loaded} / ${total} НПА`;
+        
+        progressDetails.innerHTML = `
+            <div class="progress-stats">
+                <div class="progress-stat-item">
+                    <span>Всього:</span>
+                    <strong>${total}</strong>
+                </div>
+                <div class="progress-stat-item">
+                    <span>Завантажено:</span>
+                    <strong style="color: var(--success)">${loaded}</strong>
+                </div>
+                <div class="progress-stat-item">
+                    <span>Оброблено:</span>
+                    <strong style="color: var(--primary)">${processed}</strong>
+                </div>
+                <div class="progress-stat-item">
+                    <span>Не завантажено:</span>
+                    <strong style="color: var(--warning)">${total - loaded}</strong>
+                </div>
+            </div>
+        `;
+        
+        // Hide progress bar when complete
+        if (loaded >= total) {
+            setTimeout(() => {
+                const progressContainer = document.getElementById('download-progress-container');
+                if (progressContainer) {
+                    progressContainer.style.display = 'none';
+                }
+                if (progressPollingInterval) {
+                    clearInterval(progressPollingInterval);
+                    progressPollingInterval = null;
+                }
+            }, 5000);
+        }
+    }
 }
 
 // Auto-download function

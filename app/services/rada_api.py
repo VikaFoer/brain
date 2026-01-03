@@ -19,6 +19,7 @@ class RadaAPIService:
         self.token = settings.RADA_API_TOKEN
         self.rate_limit = settings.RADA_API_RATE_LIMIT
         self.delay = settings.RADA_API_DELAY
+        self.open_data_dataset_id = settings.RADA_OPEN_DATA_DATASET_ID
         self.last_request_time = 0.0
     
     async def _rate_limit(self):
@@ -520,7 +521,19 @@ class RadaAPIService:
             if not all_nregs:
                 logger.warning("No documents found with pagination, trying fallback methods...")
                 
-                # Fallback 1: Try get_new_documents_list with different time ranges
+                # Fallback 1: Try open data portal API (preferred method)
+                try:
+                    logger.info("Fallback: Trying open data portal API...")
+                    open_data_nregs = await self.get_all_nregs_from_open_data()
+                    if open_data_nregs:
+                        logger.info(f"✅ Fallback successful: found {len(open_data_nregs)} documents from open data portal")
+                        if limit and len(open_data_nregs) > limit:
+                            open_data_nregs = open_data_nregs[:limit]
+                        return open_data_nregs
+                except Exception as e:
+                    logger.warning(f"Fallback open data portal failed: {e}")
+                
+                # Fallback 2: Try get_new_documents_list with different time ranges
                 for days in [365, 730, 1095]:  # Try 1 year, 2 years, 3 years
                     try:
                         logger.info(f"Fallback: Trying get_new_documents_list with {days} days")
@@ -534,7 +547,7 @@ class RadaAPIService:
                         logger.warning(f"Fallback get_new_documents_list ({days} days) failed: {e}")
                         continue
                 
-                # Fallback 2: Try get_updated_documents_list
+                # Fallback 3: Try get_updated_documents_list
                 try:
                     logger.info("Fallback: Trying get_updated_documents_list")
                     updated_nregs = await self.get_updated_documents_list()
@@ -575,6 +588,224 @@ class RadaAPIService:
         except Exception as e:
             logger.error(f"Exception getting all documents list: {e}", exc_info=True)
             return []
+    
+    async def get_open_data_catalog(self) -> Optional[Dict[str, Any]]:
+        """
+        Get catalog of open data datasets from https://data.rada.gov.ua/ogd/
+        Returns catalog metadata in JSON format
+        """
+        await self._rate_limit()
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                # Try to get catalog in JSON format
+                # The catalog might be at /ogd/ or /open/main/registry
+                catalog_urls = [
+                    "https://data.rada.gov.ua/ogd/registry.json",
+                    "https://data.rada.gov.ua/open/main/registry.json",
+                    "https://data.rada.gov.ua/ogd/catalog.json",
+                ]
+                
+                headers = self._get_headers(use_token=False)
+                
+                for url in catalog_urls:
+                    try:
+                        logger.info(f"Trying to fetch catalog from {url}")
+                        response = await client.get(url, headers=headers, timeout=30.0, follow_redirects=True)
+                        
+                        if response.status_code == 200:
+                            content_type = response.headers.get("content-type", "").lower()
+                            if "application/json" in content_type or "text/json" in content_type:
+                                data = response.json()
+                                logger.info(f"Successfully fetched catalog from {url}")
+                                return data
+                    except Exception as e:
+                        logger.debug(f"Failed to fetch from {url}: {e}")
+                        continue
+                
+                logger.warning("Could not fetch catalog in JSON format, trying HTML parsing")
+                return None
+        except Exception as e:
+            logger.error(f"Error fetching open data catalog: {e}")
+            return None
+    
+    async def get_open_data_dataset(self, dataset_id: str, format: str = "json") -> Optional[Dict[str, Any]]:
+        """
+        Get specific dataset from open data portal
+        Format: json, csv, xml
+        """
+        await self._rate_limit()
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                url = f"https://data.rada.gov.ua/open/data/{dataset_id}.{format}"
+                headers = self._get_headers(use_token=False)
+                
+                # Add If-Modified-Since header if we have cached version
+                # (for future optimization)
+                
+                logger.info(f"Fetching dataset {dataset_id} in {format} format")
+                response = await client.get(url, headers=headers, timeout=60.0, follow_redirects=True)
+                
+                if response.status_code == 200:
+                    if format == "json":
+                        return response.json()
+                    elif format == "csv":
+                        import csv
+                        import io
+                        # Parse CSV to list of dicts
+                        text = response.text
+                        reader = csv.DictReader(io.StringIO(text))
+                        return list(reader)
+                    elif format == "xml":
+                        # Return raw XML text for now
+                        return {"xml": response.text}
+                    else:
+                        return {"text": response.text}
+                elif response.status_code == 304:
+                    logger.info(f"Dataset {dataset_id} not modified (304)")
+                    return None
+                else:
+                    logger.warning(f"Failed to fetch dataset {dataset_id}: {response.status_code}")
+                    return None
+        except Exception as e:
+            logger.error(f"Error fetching dataset {dataset_id}: {e}")
+            return None
+    
+    async def find_legal_acts_dataset_id(self) -> Optional[str]:
+        """
+        Find the dataset ID for legal acts database
+        Searches in catalog for dataset containing legal acts
+        """
+        catalog = await self.get_open_data_catalog()
+        
+        if not catalog:
+            # Try to search HTML catalog
+            await self._rate_limit()
+            try:
+                async with httpx.AsyncClient() as client:
+                    url = "https://data.rada.gov.ua/ogd/"
+                    headers = self._get_headers(use_token=False)
+                    response = await client.get(url, headers=headers, timeout=30.0, follow_redirects=True)
+                    
+                    if response.status_code == 200:
+                        from bs4 import BeautifulSoup
+                        import re
+                        
+                        soup = BeautifulSoup(response.text, 'html.parser')
+                        
+                        # Look for links to legal acts datasets
+                        # Common names: "Законодавство", "Нормативно-правові акти", "База даних"
+                        keywords = ["законодавство", "нормативно-правові", "нпа", "закони", "база даних"]
+                        
+                        for link in soup.find_all('a', href=True):
+                            href = link.get('href', '')
+                            text = link.get_text().lower()
+                            
+                            # Check if link contains dataset ID and text matches keywords
+                            if any(keyword in text for keyword in keywords):
+                                # Extract ID from href
+                                match = re.search(r'/open/data/(\d+)', href)
+                                if match:
+                                    dataset_id = match.group(1)
+                                    logger.info(f"Found potential legal acts dataset ID: {dataset_id} (from link: {text[:50]})")
+                                    return dataset_id
+            except Exception as e:
+                logger.error(f"Error searching HTML catalog: {e}")
+        
+        # If catalog is JSON, search in it
+        if isinstance(catalog, dict):
+            # Search for datasets with legal acts keywords
+            datasets = catalog.get("datasets", []) or catalog.get("data", []) or []
+            
+            keywords = ["законодавство", "нормативно-правові", "нпа", "закони", "база даних"]
+            
+            for dataset in datasets:
+                title = str(dataset.get("title", "")).lower()
+                description = str(dataset.get("description", "")).lower()
+                
+                if any(keyword in title or keyword in description for keyword in keywords):
+                    dataset_id = dataset.get("id") or dataset.get("guid") or dataset.get("identifier")
+                    if dataset_id:
+                        logger.info(f"Found legal acts dataset ID: {dataset_id}")
+                        return str(dataset_id)
+        
+        logger.warning("Could not find legal acts dataset ID in catalog")
+        return None
+    
+    async def get_all_nregs_from_open_data(self, dataset_id: Optional[str] = None) -> List[str]:
+        """
+        Get all NREG identifiers from open data portal
+        This is the preferred method as it uses structured API
+        """
+        if not dataset_id:
+            # Try configured dataset ID first
+            dataset_id = self.open_data_dataset_id
+        
+        if not dataset_id:
+            logger.info("Dataset ID not provided, searching for legal acts dataset...")
+            dataset_id = await self.find_legal_acts_dataset_id()
+        
+        if not dataset_id:
+            logger.error("Could not find legal acts dataset ID")
+            return []
+        
+        logger.info(f"Fetching legal acts from open data portal, dataset ID: {dataset_id}")
+        
+        # Try JSON format first
+        dataset = await self.get_open_data_dataset(dataset_id, format="json")
+        
+        if dataset:
+            nregs = []
+            
+            # Extract NREG identifiers from dataset
+            # Structure might vary, try common patterns
+            if isinstance(dataset, list):
+                for item in dataset:
+                    if isinstance(item, dict):
+                        # Try common field names for NREG
+                        nreg = (item.get("nreg") or item.get("NREG") or 
+                               item.get("number") or item.get("id") or 
+                               item.get("identifier") or item.get("code"))
+                        if nreg:
+                            nregs.append(str(nreg))
+            elif isinstance(dataset, dict):
+                # Dataset might have nested structure
+                records = (dataset.get("data") or dataset.get("records") or 
+                          dataset.get("items") or dataset.get("results") or [])
+                
+                for item in records:
+                    if isinstance(item, dict):
+                        nreg = (item.get("nreg") or item.get("NREG") or 
+                               item.get("number") or item.get("id") or 
+                               item.get("identifier") or item.get("code"))
+                        if nreg:
+                            nregs.append(str(nreg))
+            
+            if nregs:
+                logger.info(f"Found {len(nregs)} NREG identifiers from open data portal")
+                return list(set(nregs))  # Remove duplicates
+        
+        # Fallback to CSV if JSON didn't work
+        logger.info("JSON format didn't work, trying CSV...")
+        dataset_csv = await self.get_open_data_dataset(dataset_id, format="csv")
+        
+        if dataset_csv and isinstance(dataset_csv, list):
+            nregs = []
+            for item in dataset_csv:
+                if isinstance(item, dict):
+                    nreg = (item.get("nreg") or item.get("NREG") or 
+                           item.get("number") or item.get("id") or 
+                           item.get("identifier") or item.get("code"))
+                    if nreg:
+                        nregs.append(str(nreg))
+            
+            if nregs:
+                logger.info(f"Found {len(nregs)} NREG identifiers from CSV format")
+                return list(set(nregs))
+        
+        logger.warning("Could not extract NREG identifiers from open data dataset")
+        return []
     
     async def _try_pagination(self, client: httpx.AsyncClient, headers: Dict[str, str], all_nregs: List[str], limit: Optional[int] = None):
         """Try to get documents using pagination"""

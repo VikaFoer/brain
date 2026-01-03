@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     RADA_API_BASE_URL: str = "https://data.rada.gov.ua"
     RADA_API_RATE_LIMIT: int = 60  # запитів на хвилину
     RADA_API_DELAY: float = 6.0  # секунд між запитами
+    RADA_OPEN_DATA_DATASET_ID: Optional[str] = None  # ID набору даних з порталу відкритих даних (https://data.rada.gov.ua/open/data/)
     
     # PostgreSQL
     DATABASE_URL: Optional[str] = None

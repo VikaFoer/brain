@@ -77,6 +77,48 @@ async def get_legal_acts(
     return result
 
 
+@router.get("/test-open-data-api")
+async def test_open_data_api(db: Session = Depends(get_db)):
+    """
+    Test open data portal API - find and fetch legal acts dataset
+    """
+    from app.services.rada_api import rada_api
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
+    try:
+        # Try to find dataset ID
+        logger.info("Searching for legal acts dataset ID...")
+        dataset_id = await rada_api.find_legal_acts_dataset_id()
+        
+        if not dataset_id:
+            return {
+                "status": "error",
+                "message": "Could not find legal acts dataset ID",
+                "suggestion": "Try visiting https://data.rada.gov.ua/ogd/ and find the dataset ID manually"
+            }
+        
+        # Try to fetch dataset
+        logger.info(f"Found dataset ID: {dataset_id}, fetching data...")
+        nregs = await rada_api.get_all_nregs_from_open_data(dataset_id=dataset_id)
+        
+        return {
+            "status": "success",
+            "dataset_id": dataset_id,
+            "nregs_count": len(nregs),
+            "sample_nregs": nregs[:10] if nregs else [],
+            "message": f"Successfully fetched {len(nregs)} NREG identifiers from open data portal"
+        }
+    except Exception as e:
+        logger.error(f"Error testing open data API: {e}", exc_info=True)
+        return {
+            "status": "error",
+            "message": str(e),
+            "error_type": type(e).__name__
+        }
+
+
 
 
 @router.post("/initialize-categories")

@@ -41,21 +41,54 @@ class ProcessingService:
             logger.info(f"Act {nreg} already processed, skipping (use force_reprocess=True to reprocess)")
             return act
         
-        # If act exists but not processed, we still need to download/update it
+        # If act exists but not processed, check if it's from dataset
         if act and not act.is_processed:
             logger.info(f"Act {nreg} exists but not processed, continuing with processing...")
+            
+            # If act has dataset_metadata, use it instead of downloading from API
+            if act.dataset_metadata:
+                logger.info(f"Act {nreg} has dataset metadata, using it for processing...")
+                document_json = act.dataset_metadata.copy()
+                # Extract text from metadata if available
+                text = (document_json.get("text") or document_json.get("Text") or 
+                       document_json.get("текст") or act.text)
+                card_json = document_json  # Use metadata as card_json
+                
+                # If no text in metadata, try to get from act.text
+                if not text and act.text:
+                    text = act.text
+                    document_json["text"] = text
+            else:
+                # Act exists but no metadata - try to download from API
+                document_json = None
+                card_json = None
+                text = None
+        else:
+            # Act doesn't exist - need to download
+            document_json = None
+            card_json = None
+            text = None
         
-        # Validate NREG format before processing
-        # Check if it looks like a valid NREG (contains / or -)
-        if not ('/' in nreg or '-' in nreg) and not nreg.isdigit():
-            logger.warning(f"Invalid NREG format: {nreg}. Skipping download.")
+        # If we don't have data yet, try to download from Rada API
+        # But skip if NREG looks like a generated ID (contains underscore and doesn't have / or -)
+        is_generated_id = '_' in nreg and not ('/' in nreg or '-' in nreg)
+        
+        if not document_json and not is_generated_id:
+            # Validate NREG format before processing
+            # Check if it looks like a valid NREG (contains / or -)
+            if not ('/' in nreg or '-' in nreg) and not nreg.isdigit():
+                logger.warning(f"Invalid NREG format: {nreg}. Skipping download.")
+                return None
+            
+            # Download from Rada API
+            logger.info(f"Downloading act {nreg} from Rada API...")
+            document_json = await rada_api.get_document_json(nreg)
+            card_json = await rada_api.get_document_card(nreg)
+            text = await rada_api.get_document_text(nreg)
+        elif is_generated_id and not document_json:
+            # Generated ID but no data in database - cannot process
+            logger.error(f"Cannot process generated ID {nreg} - document not found in database and cannot download from API")
             return None
-        
-        # Download from Rada API
-        logger.info(f"Downloading act {nreg} from Rada API...")
-        document_json = await rada_api.get_document_json(nreg)
-        card_json = await rada_api.get_document_card(nreg)
-        text = await rada_api.get_document_text(nreg)
         
         # If document_json is None, try to get text and create minimal structure
         if not document_json:

@@ -222,11 +222,27 @@ async def chat(
     }
     
     # Search for relevant acts and categories based on question
-    relevant_acts = search_relevant_acts(request.question, db, limit=5)
+    relevant_acts = search_relevant_acts(request.question, db, limit=10)  # Increased from 5 to 10
     relevant_categories = search_relevant_categories(request.question, db)
     
     context["relevant_acts"] = relevant_acts
     context["relevant_categories"] = relevant_categories
+    
+    # ALWAYS include list of all acts in database (for general questions)
+    # This ensures chat has access to all loaded acts, not just search results
+    all_acts = db.query(LegalAct).order_by(LegalAct.nreg).limit(100).all()  # Get up to 100 acts
+    context["all_acts_in_database"] = [
+        {
+            "nreg": act.nreg,
+            "title": act.title,
+            "document_type": act.document_type,
+            "status": act.status,
+            "is_processed": act.is_processed,
+            "date_acceptance": act.date_acceptance.isoformat() if act.date_acceptance else None,
+        }
+        for act in all_acts
+    ]
+    logger.info(f"Added {len(context['all_acts_in_database'])} acts to context (total in DB: {get_database_statistics(db).get('total_acts', 0)})")
     
     # If specific categories requested, get their info
     if request.category_ids:
@@ -248,7 +264,7 @@ async def chat(
             ActCategory
         ).filter(
             ActCategory.category_id.in_(request.category_ids)
-        ).limit(10).all()
+        ).limit(50).all()  # Increased from 10 to 50
         
         context["acts_in_categories"] = [
             {
@@ -288,11 +304,11 @@ async def chat(
     
     # Get additional processed acts with extracted elements for general questions
     # This ensures we have context even if search didn't find exact matches
-    if len(relevant_acts) == 0 or any("функці" in request.question.lower() or "держав" in request.question.lower() or "конституці" in request.question.lower() for _ in [1]):
-        processed_acts = db.query(LegalAct).filter(
-            LegalAct.is_processed == True,
-            LegalAct.extracted_elements.isnot(None)
-        ).limit(10).all()
+    # Always include processed acts (not just when relevant_acts is empty)
+    processed_acts = db.query(LegalAct).filter(
+        LegalAct.is_processed == True,
+        LegalAct.extracted_elements.isnot(None)
+    ).limit(50).all()  # Increased from 10 to 50
         
         context["processed_acts_with_elements"] = []
         for act in processed_acts:

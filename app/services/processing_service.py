@@ -109,6 +109,10 @@ class ProcessingService:
                         if line and 10 < len(line) < 300 and not line.startswith('№'):
                             document_json["title"] = line
                             break
+            elif act and act.dataset_metadata:
+                # Use dataset metadata as fallback
+                document_json = act.dataset_metadata.copy()
+                logger.info(f"Using dataset metadata for {nreg}")
             else:
                 logger.error(f"Failed to download {nreg} (both JSON and text unavailable)")
                 return None

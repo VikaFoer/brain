@@ -123,6 +123,9 @@ class EmbeddingsService:
             # Only text-embedding-3-* models support dimensions parameter
             if self.dimensions and ("text-embedding-3" in self.model):
                 api_params["dimensions"] = self.dimensions
+                logger.debug(f"Adding dimensions={self.dimensions} for model {self.model}")
+            else:
+                logger.debug(f"Skipping dimensions: model={self.model}, has_dimensions={bool(self.dimensions)}, check={'text-embedding-3' in self.model if self.model else False}")
             
             # Use batch API if requested and multiple texts
             if use_batch and len(texts) > 1:

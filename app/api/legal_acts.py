@@ -90,8 +90,32 @@ async def get_legal_acts(
             # Column might already exist or migration failed, continue
             logger.debug(f"Migration check: {migration_error}")
         
-        acts = db.query(LegalAct).all()
-        return acts
+        # Get acts with pagination support
+        skip = 0
+        limit = 100
+        processed_only = False
+        
+        query = db.query(LegalAct)
+        
+        if processed_only:
+            query = query.filter(LegalAct.is_processed == True)
+        
+        acts = query.order_by(LegalAct.created_at.desc()).offset(skip).limit(limit).all()
+        
+        # Convert to response format with proper date formatting
+        result = []
+        for act in acts:
+            result.append(LegalActResponse(
+                id=act.id,
+                nreg=act.nreg,
+                title=act.title,
+                is_processed=act.is_processed,
+                document_type=act.document_type,
+                status=act.status,
+                date_acceptance=act.date_acceptance.isoformat() if act.date_acceptance else None,
+                date_publication=act.date_publication.isoformat() if act.date_publication else None
+            ))
+        return result
     except Exception as e:
         logger.error(f"Error getting legal acts: {e}", exc_info=True)
         raise HTTPException(
@@ -100,35 +124,6 @@ async def get_legal_acts(
         )
 
 
-@router.get("/", response_model=List[LegalActResponse])
-async def get_legal_acts_old(
-    skip: int = 0,
-    limit: int = 100,
-    processed_only: bool = False,
-    db: Session = Depends(get_db)
-):
-    """Get legal acts"""
-    query = db.query(LegalAct)
-    
-    if processed_only:
-        query = query.filter(LegalAct.is_processed == True)
-    
-    acts = query.order_by(LegalAct.created_at.desc()).offset(skip).limit(limit).all()
-    
-    # Convert to response format with proper date formatting
-    result = []
-    for act in acts:
-        result.append(LegalActResponse(
-            id=act.id,
-            nreg=act.nreg,
-            title=act.title,
-            is_processed=act.is_processed,
-            document_type=act.document_type,
-            status=act.status,
-            date_acceptance=act.date_acceptance.isoformat() if act.date_acceptance else None,
-            date_publication=act.date_publication.isoformat() if act.date_publication else None
-        ))
-    return result
 
 
 @router.get("/test-open-data-api")

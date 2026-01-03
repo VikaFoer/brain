@@ -937,6 +937,19 @@ async function processAct(nreg) {
     statusDiv.innerHTML = '<div style="display: flex; align-items: center; gap: 8px;"><span>⚙️</span> Запуск обробки...</div>';
     statusDiv.style.background = 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)';
 
+    // Validate NREG before processing
+    if (!nreg || nreg.length < 3 || (nreg.toLowerCase() === 'docs' || nreg.toLowerCase() === 'laws')) {
+        statusDiv.style.background = 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)';
+        statusDiv.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span>❌</span>
+                <div>Невірний формат NREG: "${nreg}". NREG не може бути "docs" або "laws".</div>
+            </div>
+        `;
+        setTimeout(() => statusDiv.remove(), 5000);
+        return;
+    }
+    
     try {
         const encodedNreg = nreg.split('/').map(part => encodeURIComponent(part)).join('/');
         const response = await fetch(`${API_BASE}/legal-acts/${encodedNreg}/process`, {
@@ -1118,6 +1131,50 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+// Download all documents from dataset
+async function downloadFromDataset() {
+    const btn = document.getElementById('download-from-dataset-btn');
+    if (!btn) {
+        console.error('download-from-dataset-btn not found!');
+        return;
+    }
+    
+    // Ask for dataset ID (optional)
+    const datasetId = prompt('Введіть ID датасету (наприклад, "docs" або "laws"). Залиште порожнім для автоматичного визначення:');
+    
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = `<span>⏳</span> Запуск...`;
+    
+    try {
+        const url = `${API_BASE}/legal-acts/download-from-dataset${datasetId ? `?dataset_id=${encodeURIComponent(datasetId)}` : ''}`;
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+            throw new Error(errorData.detail || `HTTP ${response.status}`);
+        }
+        
+        const data = await response.json();
+        showNotification('info', `✅ ${data.message}`, 5000);
+        
+        // Refresh the list after a delay
+        setTimeout(() => {
+            loadRadaActsList(true);
+        }, 2000);
+        
+    } catch (error) {
+        console.error('Error downloading from dataset:', error);
+        showNotification('error', `❌ Помилка: ${error.message}`, 5000);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
 }
 
 // Download active acts function
@@ -1570,3 +1627,4 @@ function renderDatabaseSchema(data) {
 window.showActDetails = showActDetails;
 window.processAct = processAct;
 window.checkActOnRada = checkActOnRada;
+window.downloadFromDataset = downloadFromDataset;

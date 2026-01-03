@@ -49,15 +49,29 @@ class ProcessingService:
             if act.dataset_metadata:
                 logger.info(f"Act {nreg} has dataset metadata, using it for processing...")
                 document_json = act.dataset_metadata.copy()
-                # Extract text from metadata if available
+                # Extract text from metadata if available - try multiple field names
                 text = (document_json.get("text") or document_json.get("Text") or 
-                       document_json.get("текст") or act.text)
+                       document_json.get("текст") or document_json.get("Текст") or
+                       document_json.get("content") or document_json.get("Content") or
+                       document_json.get("body") or document_json.get("Body") or
+                       document_json.get("опис") or document_json.get("Опис") or
+                       act.text)
                 card_json = document_json  # Use metadata as card_json
                 
                 # If no text in metadata, try to get from act.text
                 if not text and act.text:
                     text = act.text
                     document_json["text"] = text
+                
+                # If still no text, try to create a minimal text from available fields
+                if not text:
+                    # Combine title and description if available
+                    title = document_json.get("title") or document_json.get("Title") or document_json.get("назва") or ""
+                    description = document_json.get("description") or document_json.get("Description") or document_json.get("опис") or ""
+                    if title or description:
+                        text = f"{title}\n\n{description}".strip()
+                        document_json["text"] = text
+                        logger.info(f"Created minimal text from metadata for {nreg} (title + description)")
             else:
                 # Act exists but no metadata - try to download from API
                 document_json = None
@@ -125,6 +139,17 @@ class ProcessingService:
         # If we got text from document_json, use it
         if "text" in document_json and not text:
             text = document_json.get("text")
+        
+        # Final fallback: try to extract text from any field in document_json
+        if not text and document_json:
+            # Try common field names for text content
+            for field_name in ["text", "Text", "текст", "Текст", "content", "Content", "body", "Body", "опис", "Опис", "description", "Description"]:
+                if field_name in document_json and document_json[field_name]:
+                    potential_text = str(document_json[field_name])
+                    if len(potential_text) > 50:  # Only use if it's substantial
+                        text = potential_text
+                        logger.info(f"Extracted text from field '{field_name}' for {nreg}")
+                        break
         
         # Extract metadata from card_json or document_json
         document_type = None
@@ -336,8 +361,17 @@ class ProcessingService:
                 act.extracted_elements = None
                 self.db.commit()
         else:
-            logger.warning(f"No text available for {nreg}, cannot process")
-            act.is_processed = False
+            # No text available - but if we have metadata, mark as loaded (not processed)
+            if act.dataset_metadata or document_json:
+                logger.info(f"No text available for {nreg}, but document metadata exists. Marking as loaded (not processed).")
+                act.is_processed = False
+                # Still save the metadata we have
+                if document_json and not act.text_json:
+                    act.text_json = document_json
+                self.db.commit()
+            else:
+                logger.warning(f"No text available for {nreg}, cannot process")
+                act.is_processed = False
         
         # Sync to Neo4j if not already synced (only if processed)
         if act.is_processed:

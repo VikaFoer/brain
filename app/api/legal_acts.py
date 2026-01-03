@@ -560,14 +560,28 @@ async def download_all_from_dataset(
             
             for doc in all_documents:
                 try:
-                    # Extract NREG from document
-                    nreg = (doc.get("nreg") or doc.get("NREG") or 
-                           doc.get("id") or doc.get("number") or 
-                           doc.get("identifier") or f"doc_{created}")
+                    # Generate unique identifier for document
+                    # Use NREG if available and valid, otherwise generate unique ID
+                    import hashlib
+                    import json
+                    
+                    # Try to get NREG from document
+                    nreg = (doc.get("nreg") or doc.get("NREG") or None)
+                    
+                    # If NREG is invalid or missing, generate unique ID from document content
+                    if not nreg or not rada_api._is_valid_nreg(str(nreg)):
+                        # Generate unique ID from document metadata
+                        doc_str = json.dumps(doc, sort_keys=True, default=str)
+                        doc_hash = hashlib.md5(doc_str.encode()).hexdigest()[:12]
+                        dataset_prefix = dataset_id or doc.get("_dataset_id") or "dataset"
+                        nreg = f"{dataset_prefix}_{doc_hash}"
+                        logger.debug(f"Generated NREG for document: {nreg}")
                     
                     # Extract title
                     title = (doc.get("title") or doc.get("name") or 
-                            doc.get("Title") or doc.get("Name") or nreg)
+                            doc.get("Title") or doc.get("Name") or 
+                            doc.get("назва") or doc.get("Назва") or 
+                            f"Документ {nreg}")
                     
                     # Extract status
                     status = (doc.get("status") or doc.get("Status") or 
@@ -703,14 +717,27 @@ async def sync_all_rada_acts(
             skipped = 0
             
             for doc in all_documents:
-                # Extract NREG from document
-                nreg = (doc.get("nreg") or doc.get("NREG") or 
-                       doc.get("id") or doc.get("number") or 
-                       doc.get("identifier") or f"doc_{created}")
+                # Generate unique identifier for document
+                import hashlib
+                import json
+                
+                # Try to get NREG from document
+                nreg = (doc.get("nreg") or doc.get("NREG") or None)
+                
+                # If NREG is invalid or missing, generate unique ID from document content
+                if not nreg or not rada_api._is_valid_nreg(str(nreg)):
+                    # Generate unique ID from document metadata
+                    doc_str = json.dumps(doc, sort_keys=True, default=str)
+                    doc_hash = hashlib.md5(doc_str.encode()).hexdigest()[:12]
+                    dataset_id_from_doc = doc.get("_dataset_id") or "dataset"
+                    nreg = f"{dataset_id_from_doc}_{doc_hash}"
+                    logger.debug(f"Generated NREG for document: {nreg}")
                 
                 # Extract title
                 title = (doc.get("title") or doc.get("name") or 
-                        doc.get("Title") or doc.get("Name") or nreg)
+                        doc.get("Title") or doc.get("Name") or 
+                        doc.get("назва") or doc.get("Назва") or 
+                        f"Документ {nreg}")
                 try:
                     # Check if already exists
                     act = bg_db.query(LegalAct).filter(LegalAct.nreg == nreg).first()
@@ -851,9 +878,11 @@ async def download_active_acts(
                         skipped_inactive += 1
                         continue
                     
-                    # Extract title
-                    title = (doc.get("title") or doc.get("name") or 
-                            doc.get("Title") or doc.get("Name") or nreg)
+                           # Extract title
+                           title = (doc.get("title") or doc.get("name") or 
+                                   doc.get("Title") or doc.get("Name") or 
+                                   doc.get("назва") or doc.get("Назва") or 
+                                   f"Документ {nreg}")
                     
                     # Створити або оновити акт
                     existing_act = bg_db.query(LegalAct).filter(LegalAct.nreg == nreg).first()

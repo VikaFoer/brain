@@ -954,42 +954,12 @@ class RadaAPIService:
                     items_to_process = [dataset]
         
         # Process all items as documents
-        for item in items_to_process:
+        for idx, item in enumerate(items_to_process):
             if isinstance(item, dict):
-                # Keep all fields from the document
-                # Try to extract NREG for identification
-                nreg = None
-                for field_name in ["nreg", "NREG", "nreg_id", "document_id", "doc_id", 
-                                  "number", "id", "identifier", "code", "nreg_number",
-                                  "document_number", "act_number", "law_number"]:
-                    if field_name in item:
-                        value = item[field_name]
-                        if value:
-                            nreg_str = str(value).strip()
-                            # Use NREG if valid, otherwise use any identifier
-                            if self._is_valid_nreg(nreg_str):
-                                nreg = nreg_str
-                                break
-                            elif not nreg:  # Use first available identifier as fallback
-                                nreg = nreg_str
-                
-                # If no NREG found, try to generate one from available fields
-                if not nreg:
-                    # Try to create identifier from available fields
-                    for field_name in ["id", "number", "identifier", "code"]:
-                        if field_name in item and item[field_name]:
-                            nreg = str(item[field_name]).strip()
-                            break
-                    
-                    # Last resort: use index or hash
-                    if not nreg:
-                        import hashlib
-                        item_str = str(item)[:100]
-                        nreg = f"doc_{hashlib.md5(item_str.encode()).hexdigest()[:8]}"
-                
-                # Add NREG to document if not present
-                if "nreg" not in item and "NREG" not in item:
-                    item["nreg"] = nreg
+                # Keep all fields from the document - don't require NREG
+                # NREG will be generated in API layer if needed
+                # Just preserve any existing identifier fields
+                pass  # Keep document as-is, no NREG extraction here
                 
                 # Add dataset metadata
                 item["_dataset_id"] = getattr(self, 'open_data_dataset_id', None)

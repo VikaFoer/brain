@@ -15,8 +15,9 @@ router = APIRouter()
 class CategoryResponse(BaseModel):
     id: int
     name: str
-    description: str | None
-    element_count: int
+    code: int | None = None  # Код класифікації (може бути None для старих записів)
+    description: str | None = None
+    element_count: int = 0
     
     class Config:
         from_attributes = True
@@ -30,9 +31,27 @@ async def get_categories(db: Session = Depends(get_db)):
         from app.core.database import Base, engine
         Base.metadata.create_all(bind=engine)
         
+        # Try to add code column if it doesn't exist (for existing databases)
+        try:
+            from sqlalchemy import inspect, text
+            inspector = inspect(engine)
+            columns = [col['name'] for col in inspector.get_columns('categories')]
+            if 'code' not in columns:
+                logger.warning("Column 'code' not found in categories table, adding it...")
+                with engine.connect() as conn:
+                    conn.execute(text("ALTER TABLE categories ADD COLUMN code INTEGER"))
+                    conn.commit()
+                logger.info("Column 'code' added successfully")
+        except Exception as migration_error:
+            # Column might already exist or migration failed, continue
+            logger.debug(f"Migration check: {migration_error}")
+        
         categories = db.query(Category).all()
         return categories
     except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error getting categories: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Database error: {str(e)}. Please ensure DATABASE_URL is set correctly."

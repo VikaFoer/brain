@@ -677,14 +677,46 @@ class RadaAPIService:
         Find the dataset ID for legal acts database
         Searches in catalog for dataset containing legal acts
         """
+        # Try multiple catalog URLs
+        catalog_urls = [
+            "https://data.rada.gov.ua/ogd/",
+            "https://data.rada.gov.ua/open/main/",
+            "https://data.rada.gov.ua/open/data/",
+        ]
+        
+        keywords = ["законодавство", "нормативно-правові", "нпа", "закони", "база даних", "legal", "acts"]
+        
+        # First, try to get JSON catalog
         catalog = await self.get_open_data_catalog()
         
-        if not catalog:
-            # Try to search HTML catalog
+        if isinstance(catalog, dict):
+            # Search for datasets with legal acts keywords
+            datasets = (catalog.get("datasets", []) or 
+                       catalog.get("data", []) or 
+                       catalog.get("results", []) or
+                       catalog.get("items", []) or [])
+            
+            logger.info(f"Searching in {len(datasets)} datasets from JSON catalog")
+            
+            for dataset in datasets:
+                title = str(dataset.get("title", "") or dataset.get("name", "")).lower()
+                description = str(dataset.get("description", "") or "").lower()
+                
+                if any(keyword in title or keyword in description for keyword in keywords):
+                    dataset_id = (dataset.get("id") or 
+                                 dataset.get("guid") or 
+                                 dataset.get("identifier") or
+                                 dataset.get("dataset_id"))
+                    if dataset_id:
+                        logger.info(f"✅ Found legal acts dataset ID: {dataset_id} (title: {title[:50]})")
+                        return str(dataset_id)
+        
+        # If JSON catalog didn't work, try HTML parsing
+        logger.info("JSON catalog search failed, trying HTML parsing...")
+        for url in catalog_urls:
             await self._rate_limit()
             try:
                 async with httpx.AsyncClient() as client:
-                    url = "https://data.rada.gov.ua/ogd/"
                     headers = self._get_headers(use_token=False)
                     response = await client.get(url, headers=headers, timeout=30.0, follow_redirects=True)
                     
@@ -695,42 +727,31 @@ class RadaAPIService:
                         soup = BeautifulSoup(response.text, 'html.parser')
                         
                         # Look for links to legal acts datasets
-                        # Common names: "Законодавство", "Нормативно-правові акти", "База даних"
-                        keywords = ["законодавство", "нормативно-правові", "нпа", "закони", "база даних"]
-                        
                         for link in soup.find_all('a', href=True):
                             href = link.get('href', '')
                             text = link.get_text().lower()
                             
                             # Check if link contains dataset ID and text matches keywords
                             if any(keyword in text for keyword in keywords):
-                                # Extract ID from href
-                                match = re.search(r'/open/data/(\d+)', href)
-                                if match:
-                                    dataset_id = match.group(1)
-                                    logger.info(f"Found potential legal acts dataset ID: {dataset_id} (from link: {text[:50]})")
-                                    return dataset_id
+                                # Try different URL patterns
+                                patterns = [
+                                    r'/open/data/(\d+)',
+                                    r'/data/(\d+)',
+                                    r'id[=:](\d+)',
+                                    r'dataset[=:](\d+)',
+                                ]
+                                
+                                for pattern in patterns:
+                                    match = re.search(pattern, href)
+                                    if match:
+                                        dataset_id = match.group(1)
+                                        logger.info(f"✅ Found potential legal acts dataset ID: {dataset_id} (from {url}, link: {text[:50]})")
+                                        return dataset_id
             except Exception as e:
-                logger.error(f"Error searching HTML catalog: {e}")
+                logger.debug(f"Error searching {url}: {e}")
+                continue
         
-        # If catalog is JSON, search in it
-        if isinstance(catalog, dict):
-            # Search for datasets with legal acts keywords
-            datasets = catalog.get("datasets", []) or catalog.get("data", []) or []
-            
-            keywords = ["законодавство", "нормативно-правові", "нпа", "закони", "база даних"]
-            
-            for dataset in datasets:
-                title = str(dataset.get("title", "")).lower()
-                description = str(dataset.get("description", "")).lower()
-                
-                if any(keyword in title or keyword in description for keyword in keywords):
-                    dataset_id = dataset.get("id") or dataset.get("guid") or dataset.get("identifier")
-                    if dataset_id:
-                        logger.info(f"Found legal acts dataset ID: {dataset_id}")
-                        return str(dataset_id)
-        
-        logger.warning("Could not find legal acts dataset ID in catalog")
+        logger.warning("❌ Could not find legal acts dataset ID in catalog. You may need to specify RADA_OPEN_DATA_DATASET_ID manually.")
         return None
     
     async def get_all_nregs_from_open_data(self, dataset_id: Optional[str] = None) -> List[str]:

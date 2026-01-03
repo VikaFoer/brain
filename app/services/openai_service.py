@@ -69,13 +69,14 @@ class OpenAIService:
                 logger.warning(f"Failed to initialize W&B for monitoring: {e}")
                 # Continue without W&B
     
-    def chunk_legal_text(self, text: str, max_chunk_size: Optional[int] = None) -> List[Dict[str, Any]]:
+    def chunk_legal_text(self, text: str, max_chunk_size: Optional[int] = None, always_split_by_structure: bool = True) -> List[Dict[str, Any]]:
         """
-        Split legal act text into chunks, preferably by articles/sections
+        Split legal act text into chunks by logical structure (articles, sections, etc.)
         
         Args:
             text: Full text of the legal act
             max_chunk_size: Maximum characters per chunk (default: self.max_chunk_size)
+            always_split_by_structure: If True, always split by articles/sections even for small documents
         
         Returns:
             List of chunks with metadata: [{"text": "...", "chunk_index": 0, ...}, ...]
@@ -85,22 +86,21 @@ class OpenAIService:
         
         max_chunk_size = max_chunk_size or self.max_chunk_size
         
-        # If text is short enough, return single chunk
-        if len(text) <= max_chunk_size:
-            return [{
-                "text": text,
-                "chunk_index": 0,
-                "start": 0,
-                "end": len(text),
-                "total_chunks": 1
-            }]
-        
         chunks = []
         chunk_index = 0
         start = 0
         
-        # Try to split by articles first (Стаття, Статья, Article)
-        # Pattern: Стаття N, Статья N, Article N, Стаття N. (with optional number)
+        # Patterns for logical document structure (in order of hierarchy)
+        # 1. Розділ (Section) - highest level
+        section_pattern = re.compile(r'\n\s*(?:Розділ|Раздел|Section|РОЗДІЛ|РАЗДЕЛ)\s+[IVX\d]+[\.\s]', re.IGNORECASE)
+        
+        # 2. Частина (Part)
+        part_pattern = re.compile(r'\n\s*(?:Частина|Часть|Part|ЧАСТИНА|ЧАСТЬ)\s+[IVX\d]+[\.\s]', re.IGNORECASE)
+        
+        # 3. Підрозділ (Subsection)
+        subsection_pattern = re.compile(r'\n\s*(?:Підрозділ|Подраздел|Subsection|ПІДРОЗДІЛ|ПОДРАЗДЕЛ)\s+[IVX\d]+[\.\s]', re.IGNORECASE)
+        
+        # 4. Стаття (Article) - most common
         article_pattern = re.compile(r'\n\s*(?:Стаття|Статья|Article|СТАТТЯ|СТАТЬЯ)\s+\d+[\.\s]', re.IGNORECASE)
         
         # Find all article boundaries
@@ -139,21 +139,21 @@ class OpenAIService:
                             chunk_index += 1
                         start = end
                 
-                # Determine end of this article chunk
-                if i + 1 < len(article_matches):
-                    article_end = article_matches[i + 1].start()
+                # Determine end of this structural chunk
+                if i + 1 < len(structure_matches):
+                    structure_end = structure_matches[i + 1].start()
                 else:
-                    article_end = len(text)
+                    structure_end = len(text)
                 
-                # If article is too large, split it further
-                if article_end - start > max_chunk_size:
-                    # Split large article into smaller chunks
+                # If structural unit is too large, split it further
+                if structure_end - start > max_chunk_size:
+                    # Split large structural unit into smaller chunks
                     current_start = start
-                    while current_start < article_end:
-                        current_end = min(current_start + max_chunk_size, article_end)
+                    while current_start < structure_end:
+                        current_end = min(current_start + max_chunk_size, structure_end)
                         
                         # Try to break at paragraph boundary
-                        if current_end < article_end:
+                        if current_end < structure_end:
                             search_start = max(current_start, current_end - 500)
                             for j in range(current_end - 1, search_start, -1):
                                 if text[j] == '\n':
@@ -172,20 +172,20 @@ class OpenAIService:
                             chunk_index += 1
                         current_start = current_end
                     
-                    start = article_end
+                    start = structure_end
                 else:
-                    # Article fits in one chunk
-                    chunk_text = text[start:article_end].strip()
+                    # Structural unit fits in one chunk
+                    chunk_text = text[start:structure_end].strip()
                     if chunk_text:
                         chunks.append({
                             "text": chunk_text,
                             "chunk_index": chunk_index,
                             "start": start,
-                            "end": article_end,
+                            "end": structure_end,
                             "total_chunks": None
                         })
                         chunk_index += 1
-                    start = article_end
+                    start = structure_end
             
             # Handle remaining text after last article
             if start < len(text):
@@ -689,14 +689,10 @@ class OpenAIService:
 - Для Конституції та кодексів виділи ВСІ статті без винятку
 - Якщо акт містить 100+ статей, виділи всі 100+"""
 
-        # Use chunking for large documents - it will handle the splitting automatically
-        # For smaller documents, chunking will process as single chunk
-        try:
-            # Try direct extraction first with increased max_tokens
-            # Use more text for better extraction (up to 100k chars, chunking will handle if larger)
-            text_to_analyze = legal_act_text[:100000] if len(legal_act_text) > 100000 else legal_act_text
-            
-            user_prompt = f"""Проаналізуй наступний нормативно-правовий акт:
+        # Always use chunking by logical structure (articles, sections, etc.)
+        # This ensures better extraction quality and handles all document sizes
+        logger.info(f"Using structured chunking for '{act_title}' (always split by articles/sections)")
+        return await self.extract_set_elements_chunked(legal_act_text, act_title, categories, use_chunking=True)
 
 Назва: {act_title}
 

@@ -667,34 +667,48 @@ class RadaAPIService:
                 for url in urls_to_try:
                     try:
                         logger.debug(f"Trying to fetch dataset from {url}")
+                        
+                        # Add If-Modified-Since header if we have cached version
+                        # (for future optimization)
+                        
+                        response = await client.get(url, headers=headers, timeout=60.0, follow_redirects=True)
+                        
+                        if response.status_code == 200:
+                            if format == "json":
+                                data = response.json()
+                                logger.info(f"✅ Successfully fetched dataset {dataset_id} from {url}")
+                                return data
+                            elif format == "csv":
+                                import csv
+                                import io
+                                # Parse CSV to list of dicts
+                                text = response.text
+                                reader = csv.DictReader(io.StringIO(text))
+                                data = list(reader)
+                                logger.info(f"✅ Successfully fetched dataset {dataset_id} from {url}")
+                                return data
+                            elif format == "xml":
+                                # Return raw XML text for now
+                                logger.info(f"✅ Successfully fetched dataset {dataset_id} from {url}")
+                                return {"xml": response.text}
+                            else:
+                                logger.info(f"✅ Successfully fetched dataset {dataset_id} from {url}")
+                                return {"text": response.text}
+                        elif response.status_code == 304:
+                            logger.info(f"Dataset {dataset_id} not modified (304)")
+                            return None
+                        elif response.status_code == 404:
+                            logger.debug(f"URL {url} returned 404, trying next URL...")
+                            continue
+                        else:
+                            logger.warning(f"URL {url} returned status {response.status_code}")
+                            continue
+                    except Exception as e:
+                        logger.debug(f"Error fetching from {url}: {e}, trying next URL...")
+                        continue
                 
-                # Add If-Modified-Since header if we have cached version
-                # (for future optimization)
-                
-                logger.info(f"Fetching dataset {dataset_id} in {format} format")
-                response = await client.get(url, headers=headers, timeout=60.0, follow_redirects=True)
-                
-                if response.status_code == 200:
-                    if format == "json":
-                        return response.json()
-                    elif format == "csv":
-                        import csv
-                        import io
-                        # Parse CSV to list of dicts
-                        text = response.text
-                        reader = csv.DictReader(io.StringIO(text))
-                        return list(reader)
-                    elif format == "xml":
-                        # Return raw XML text for now
-                        return {"xml": response.text}
-                    else:
-                        return {"text": response.text}
-                elif response.status_code == 304:
-                    logger.info(f"Dataset {dataset_id} not modified (304)")
-                    return None
-                else:
-                    logger.warning(f"Failed to fetch dataset {dataset_id}: {response.status_code}")
-                    return None
+                logger.warning(f"Failed to fetch dataset {dataset_id} from all tried URLs")
+                return None
         except Exception as e:
             logger.error(f"Error fetching dataset {dataset_id}: {e}")
             return None

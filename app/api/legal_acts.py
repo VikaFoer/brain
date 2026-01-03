@@ -864,10 +864,21 @@ async def download_active_acts(
             
             for doc in all_documents:
                 try:
-                    # Extract NREG from document
-                    nreg = (doc.get("nreg") or doc.get("NREG") or 
-                           doc.get("id") or doc.get("number") or 
-                           doc.get("identifier") or f"doc_{created}")
+                    # Generate unique identifier for document
+                    import hashlib
+                    import json
+                    
+                    # Try to get NREG from document
+                    nreg = (doc.get("nreg") or doc.get("NREG") or None)
+                    
+                    # If NREG is invalid or missing, generate unique ID from document content
+                    if not nreg or not rada_api._is_valid_nreg(str(nreg)):
+                        # Generate unique ID from document metadata
+                        doc_str = json.dumps(doc, sort_keys=True, default=str)
+                        doc_hash = hashlib.md5(doc_str.encode()).hexdigest()[:12]
+                        dataset_id_from_doc = doc.get("_dataset_id") or "dataset"
+                        nreg = f"{dataset_id_from_doc}_{doc_hash}"
+                        logger.debug(f"Generated NREG for document: {nreg}")
                     
                     # Extract status from document metadata
                     status = (doc.get("status") or doc.get("Status") or 
@@ -878,14 +889,32 @@ async def download_active_acts(
                         skipped_inactive += 1
                         continue
                     
-                           # Extract title
-                           title = (doc.get("title") or doc.get("name") or 
-                                   doc.get("Title") or doc.get("Name") or 
-                                   doc.get("назва") or doc.get("Назва") or 
-                                   f"Документ {nreg}")
+                    # Extract title
+                    title = (doc.get("title") or doc.get("name") or 
+                            doc.get("Title") or doc.get("Name") or 
+                            doc.get("назва") or doc.get("Назва") or 
+                            f"Документ {nreg}")
                     
-                    # Створити або оновити акт
+                    # Check if already exists by NREG or by dataset metadata hash
                     existing_act = bg_db.query(LegalAct).filter(LegalAct.nreg == nreg).first()
+                    
+                    # If not found by NREG, check by dataset_id + metadata hash
+                    if not existing_act:
+                        dataset_id_check = doc.get("_dataset_id") or "dataset"
+                        doc_hash = hashlib.md5(json.dumps(doc, sort_keys=True, default=str).encode()).hexdigest()[:12]
+                        # Try to find by dataset_id and similar metadata
+                        existing_acts = bg_db.query(LegalAct).filter(
+                            LegalAct.dataset_id == dataset_id_check
+                        ).all()
+                        # Check if any existing act has same metadata
+                        for act in existing_acts:
+                            if act.dataset_metadata:
+                                existing_hash = hashlib.md5(
+                                    json.dumps(act.dataset_metadata, sort_keys=True, default=str).encode()
+                                ).hexdigest()[:12]
+                                if existing_hash == doc_hash:
+                                    existing_act = act
+                                    break
                     
                     if existing_act:
                         if not existing_act.title or existing_act.title == nreg:

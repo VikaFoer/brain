@@ -309,25 +309,25 @@ async def chat(
         LegalAct.is_processed == True,
         LegalAct.extracted_elements.isnot(None)
     ).limit(50).all()  # Increased from 10 to 50
-        
-        context["processed_acts_with_elements"] = []
-        for act in processed_acts:
-            act_info = {
-                "nreg": act.nreg,
-                "title": act.title,
-                "has_elements": bool(act.extracted_elements),
-                "has_relations": bool(act.extracted_relations)
-            }
-            # Include extracted elements for better context
-            if act.extracted_elements:
-                if isinstance(act.extracted_elements, dict):
-                    elements = act.extracted_elements.get("elements", [])
-                    if isinstance(elements, list) and len(elements) > 0:
-                        # Include all elements, not just sample
-                        act_info["extracted_elements"] = act.extracted_elements
-                else:
+    
+    context["processed_acts_with_elements"] = []
+    for act in processed_acts:
+        act_info = {
+            "nreg": act.nreg,
+            "title": act.title,
+            "has_elements": bool(act.extracted_elements),
+            "has_relations": bool(act.extracted_relations)
+        }
+        # Include extracted elements for better context
+        if act.extracted_elements:
+            if isinstance(act.extracted_elements, dict):
+                elements = act.extracted_elements.get("elements", [])
+                if isinstance(elements, list) and len(elements) > 0:
+                    # Include all elements, not just sample
                     act_info["extracted_elements"] = act.extracted_elements
-            context["processed_acts_with_elements"].append(act_info)
+            else:
+                act_info["extracted_elements"] = act.extracted_elements
+        context["processed_acts_with_elements"].append(act_info)
     
     # Get answer from OpenAI with full context
     answer = await openai_service.chat_about_database(

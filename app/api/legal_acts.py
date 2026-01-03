@@ -537,6 +537,183 @@ async def sync_all_rada_acts(
         }
 
 
+@router.post("/download-active-acts")
+async def download_active_acts(
+    background_tasks: BackgroundTasks,
+    process: bool = Query(False, description="Обробити через OpenAI після завантаження"),
+    db: Session = Depends(get_db)
+):
+    """
+    Завантажити всі ДІЮЧІ нормативно-правові акти з Rada API
+    Фільтрує тільки акти зі статусом "діє", "чинний" тощо
+    """
+    from app.services.rada_api import rada_api
+    from app.core.database import SessionLocal
+    from app.services.processing_service import ProcessingService
+    import asyncio
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
+    # Статуси, які вважаються "діючими"
+    ACTIVE_STATUSES = ["діє", "діючий", "в дії", "чинний", "active", "valid", "в силі"]
+    
+    def is_active_status(status):
+        """Перевірити, чи статус вказує на діючий акт"""
+        if status is None:
+            return True
+        
+        status_lower = str(status).lower().strip()
+        
+        for active_status in ACTIVE_STATUSES:
+            if active_status.lower() in status_lower:
+                return True
+        
+        inactive_keywords = ["втратив", "скасовано", "недійсний", "застарілий", "втратив чинність"]
+        for keyword in inactive_keywords:
+            if keyword in status_lower:
+                return False
+        
+        return True
+    
+    async def download_and_process_active():
+        """Background task для завантаження та обробки діючих НПА"""
+        bg_db = SessionLocal()
+        try:
+            logger.info("🚀 Початок завантаження ДІЮЧИХ нормативно-правових актів...")
+            
+            # Отримати всі NREG
+            all_nregs = []
+            try:
+                logger.info("Спроба отримати через open data portal API...")
+                all_nregs = await rada_api.get_all_nregs_from_open_data()
+                if all_nregs:
+                    logger.info(f"✅ Отримано {len(all_nregs)} NREG через open data portal")
+            except Exception as e:
+                logger.warning(f"Open data API не працює: {e}, використовую fallback...")
+            
+            if not all_nregs:
+                all_nregs = await rada_api.get_all_documents_list(limit=None)
+            
+            if not all_nregs:
+                logger.error("❌ Не вдалося отримати список НПА з Rada API")
+                return
+            
+            logger.info(f"📋 Знайдено {len(all_nregs)} загальних документів")
+            
+            # Фільтрувати діючі
+            active_nregs = []
+            existing_nregs = {act.nreg for act in bg_db.query(LegalAct.nreg).all()}
+            created = 0
+            updated = 0
+            skipped_inactive = 0
+            
+            logger.info("🔍 Фільтрація діючих актів...")
+            batch_size = 50
+            
+            for i in range(0, len(all_nregs), batch_size):
+                batch = all_nregs[i:i + batch_size]
+                
+                for nreg in batch:
+                    try:
+                        # Перевірити статус
+                        card = await rada_api.get_document_card(nreg)
+                        
+                        if card:
+                            status = card.get("status") or card.get("Статус") or card.get("статус")
+                            
+                            if not is_active_status(status):
+                                skipped_inactive += 1
+                                continue
+                            
+                            title = card.get("title", nreg)
+                        else:
+                            # Якщо не вдалося отримати картку, вважаємо діючим
+                            title = nreg
+                            status = None
+                        
+                        # Створити або оновити акт
+                        existing_act = bg_db.query(LegalAct).filter(LegalAct.nreg == nreg).first()
+                        
+                        if existing_act:
+                            if not existing_act.title or existing_act.title == nreg:
+                                existing_act.title = title
+                                existing_act.status = status
+                                updated += 1
+                        else:
+                            new_act = LegalAct(
+                                nreg=nreg,
+                                title=title,
+                                status=status,
+                                is_processed=False
+                            )
+                            bg_db.add(new_act)
+                            active_nregs.append(nreg)
+                            created += 1
+                        
+                        # Коміт батчами
+                        if (created + updated) % 100 == 0:
+                            bg_db.commit()
+                            logger.info(f"Прогрес: {created} створено, {updated} оновлено, {skipped_inactive} пропущено (недіючі)")
+                    
+                    except Exception as e:
+                        logger.error(f"Помилка обробки {nreg}: {e}")
+                        bg_db.rollback()
+                        continue
+                
+                if (i + batch_size) % 500 == 0:
+                    logger.info(f"Перевірено {min(i + batch_size, len(all_nregs))}/{len(all_nregs)} актів")
+            
+            bg_db.commit()
+            logger.info(f"✅ Завантаження завершено: {created} створено, {updated} оновлено, {skipped_inactive} пропущено (недіючі)")
+            
+            # Обробка через OpenAI якщо потрібно
+            if process and active_nregs:
+                logger.info(f"🤖 Початок обробки {len(active_nregs)} діючих НПА через OpenAI...")
+                processing_service = ProcessingService(bg_db)
+                processed = 0
+                failed = 0
+                
+                for nreg in active_nregs:
+                    try:
+                        result = await processing_service.process_legal_act(nreg)
+                        if result and result.is_processed:
+                            processed += 1
+                        else:
+                            failed += 1
+                        
+                        if (processed + failed) % 50 == 0:
+                            bg_db.commit()
+                            logger.info(f"Обробка: {processed} оброблено, {failed} помилок")
+                    except Exception as e:
+                        logger.error(f"Помилка обробки {nreg}: {e}")
+                        failed += 1
+                
+                bg_db.commit()
+                logger.info(f"✅ Обробка завершена: {processed} оброблено, {failed} помилок")
+            
+        except Exception as e:
+            logger.error(f"Помилка в download_and_process_active: {e}", exc_info=True)
+            bg_db.rollback()
+        finally:
+            bg_db.close()
+    
+    if background_tasks:
+        background_tasks.add_task(lambda: asyncio.run(download_and_process_active()))
+        return {
+            "message": "Завантаження діючих НПА запущено в фоновому режимі",
+            "status": "queued",
+            "will_process": process
+        }
+    else:
+        await download_and_process_active()
+        return {
+            "message": "Завантаження діючих НПА завершено",
+            "status": "completed",
+            "will_process": process
+        }
+
+
 @router.post("/process-all-overnight")
 async def process_all_overnight(
     background_tasks: BackgroundTasks,

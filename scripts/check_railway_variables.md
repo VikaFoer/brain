@@ -77,3 +77,6 @@ https://brain-production-1712.up.railway.app/api/status
 - `connected: true`
 - `url_set: true`
 
+
+
+

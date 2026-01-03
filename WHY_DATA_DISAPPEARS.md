@@ -67,3 +67,6 @@ https://your-app.railway.app/api/legal-acts/initialize-categories
 3. Переконайтеся, що `DATABASE_URL` правильно встановлена в Variables
 4. Перезапустіть сервіс після додавання PostgreSQL
 
+
+
+

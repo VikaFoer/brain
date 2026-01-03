@@ -118,3 +118,6 @@ Files → Extract → Clean → Chunk → Embed → Store → Search
 - Запускати на окремих машинах
 - Використовувати queue (Redis/RabbitMQ) для координації
 
+
+
+

@@ -97,3 +97,6 @@ rag_pipeline/
 - `BATCH_SIZE` - розмір батчу для embeddings (default: 100)
 - `TOPK` - кількість результатів пошуку (default: 10)
 
+
+
+

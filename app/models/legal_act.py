@@ -24,6 +24,11 @@ class LegalAct(Base):
     date_acceptance = Column(DateTime(timezone=True), nullable=True)
     date_publication = Column(DateTime(timezone=True), nullable=True)
     
+    # Open Data Dataset fields
+    dataset_id = Column(String(100), nullable=True, index=True)  # ID датасету з open data portal
+    dataset_metadata = Column(JSON, nullable=True)  # Додаткова метадата з датасету (всі поля документа)
+    source = Column(String(50), default="rada_api")  # Джерело: "rada_api" або "open_data"
+    
     # Processing flags
     is_processed = Column(Boolean, default=False)  # Чи оброблено для виділення елементів
     processed_at = Column(DateTime(timezone=True), nullable=True)

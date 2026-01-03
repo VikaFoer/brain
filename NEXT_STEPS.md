@@ -48,3 +48,6 @@ const API_BASE = 'https://brain-production-1712.up.railway.app/api';
 3. **Додати змінні оточення в Railway**
 
 4. **Підключити PostgreSQL** (опціонально, але рекомендується)
+
+
+

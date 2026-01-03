@@ -62,3 +62,6 @@ https://brain-production-1712.up.railway.app/api/status
 - Побудовувати графи зв'язків
 - Переглядати статистику
 
+
+
+

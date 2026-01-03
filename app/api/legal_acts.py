@@ -48,6 +48,60 @@ class LegalActDetailResponse(BaseModel):
 
 @router.get("/", response_model=List[LegalActResponse])
 async def get_legal_acts(
+    db: Session = Depends(get_db)
+):
+    """Get all legal acts"""
+    try:
+        # Ensure tables exist
+        from app.core.database import Base, engine
+        Base.metadata.create_all(bind=engine)
+        
+        # Try to add new columns if they don't exist (for existing databases)
+        try:
+            from sqlalchemy import inspect, text
+            inspector = inspect(engine)
+            columns = [col['name'] for col in inspector.get_columns('legal_acts')]
+            
+            # Add dataset_id if missing
+            if 'dataset_id' not in columns:
+                logger.warning("Column 'dataset_id' not found in legal_acts table, adding it...")
+                with engine.connect() as conn:
+                    conn.execute(text("ALTER TABLE legal_acts ADD COLUMN dataset_id VARCHAR(100)"))
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_legal_acts_dataset_id ON legal_acts(dataset_id)"))
+                    conn.commit()
+                logger.info("Column 'dataset_id' added successfully")
+            
+            # Add dataset_metadata if missing
+            if 'dataset_metadata' not in columns:
+                logger.warning("Column 'dataset_metadata' not found in legal_acts table, adding it...")
+                with engine.connect() as conn:
+                    conn.execute(text("ALTER TABLE legal_acts ADD COLUMN dataset_metadata JSON"))
+                    conn.commit()
+                logger.info("Column 'dataset_metadata' added successfully")
+            
+            # Add source if missing
+            if 'source' not in columns:
+                logger.warning("Column 'source' not found in legal_acts table, adding it...")
+                with engine.connect() as conn:
+                    conn.execute(text("ALTER TABLE legal_acts ADD COLUMN source VARCHAR(50) DEFAULT 'rada_api'"))
+                    conn.commit()
+                logger.info("Column 'source' added successfully")
+        except Exception as migration_error:
+            # Column might already exist or migration failed, continue
+            logger.debug(f"Migration check: {migration_error}")
+        
+        acts = db.query(LegalAct).all()
+        return acts
+    except Exception as e:
+        logger.error(f"Error getting legal acts: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database error: {str(e)}"
+        )
+
+
+@router.get("/", response_model=List[LegalActResponse])
+async def get_legal_acts_old(
     skip: int = 0,
     limit: int = 100,
     processed_only: bool = False,
@@ -456,6 +510,153 @@ async def get_rada_acts_list(
             status_code=500,
             detail=f"Error fetching Rada acts list: {str(e)}"
         )
+
+
+@router.post("/download-from-dataset")
+async def download_all_from_dataset(
+    background_tasks: BackgroundTasks,
+    dataset_id: Optional[str] = Query(None, description="Dataset ID (e.g., 'docs', 'laws'). If not provided, will auto-detect"),
+    limit: Optional[int] = Query(None, description="Limit number of documents to download"),
+    db: Session = Depends(get_db)
+):
+    """
+    Завантажити ВСІ документи з open data датасету без фільтрації по NREG
+    Створює записи в БД з усією доступною інформацією з датасету
+    """
+    from app.services.rada_api import rada_api
+    from app.core.database import SessionLocal
+    import asyncio
+    import logging
+    from datetime import datetime
+    
+    logger = logging.getLogger(__name__)
+    
+    async def download_all_documents_task():
+        """Background task для завантаження всіх документів з датасету"""
+        bg_db = SessionLocal()
+        try:
+            logger.info(f"Starting download of ALL documents from open data dataset (dataset_id={dataset_id})...")
+            
+            # Get all documents from dataset
+            all_documents = await rada_api.get_all_documents_from_dataset(dataset_id=dataset_id, limit=limit)
+            
+            if not all_documents:
+                logger.error("No documents found in dataset")
+                return
+            
+            logger.info(f"Found {len(all_documents)} documents in dataset")
+            
+            # Get existing NREGs from database
+            existing_nregs = {act.nreg for act in bg_db.query(LegalAct.nreg).all()}
+            
+            # Create or update acts in database
+            created = 0
+            updated = 0
+            skipped = 0
+            
+            for doc in all_documents:
+                try:
+                    # Extract NREG from document
+                    nreg = (doc.get("nreg") or doc.get("NREG") or 
+                           doc.get("id") or doc.get("number") or 
+                           doc.get("identifier") or f"doc_{created}")
+                    
+                    # Extract title
+                    title = (doc.get("title") or doc.get("name") or 
+                            doc.get("Title") or doc.get("Name") or nreg)
+                    
+                    # Extract status
+                    status = (doc.get("status") or doc.get("Status") or 
+                             doc.get("статус") or doc.get("Статус"))
+                    
+                    # Extract dates
+                    date_acceptance = None
+                    date_publication = None
+                    
+                    for date_field in ["date_acceptance", "date_publication", "date", "Date", 
+                                      "дата_прийняття", "дата_опублікування"]:
+                        if date_field in doc and doc[date_field]:
+                            try:
+                                from dateutil import parser
+                                parsed_date = parser.parse(str(doc[date_field]))
+                                if "acceptance" in date_field.lower() or "прийняття" in date_field.lower():
+                                    date_acceptance = parsed_date
+                                elif "publication" in date_field.lower() or "опублікування" in date_field.lower():
+                                    date_publication = parsed_date
+                                elif not date_acceptance:
+                                    date_acceptance = parsed_date
+                            except:
+                                pass
+                    
+                    # Extract document type
+                    document_type = (doc.get("document_type") or doc.get("type") or 
+                                    doc.get("DocumentType") or doc.get("Type"))
+                    
+                    # Check if already exists
+                    act = bg_db.query(LegalAct).filter(LegalAct.nreg == nreg).first()
+                    
+                    if act:
+                        # Update with dataset information
+                        if not act.title or act.title == act.nreg:
+                            act.title = title
+                        if status and not act.status:
+                            act.status = status
+                        if document_type and not act.document_type:
+                            act.document_type = document_type
+                        if date_acceptance and not act.date_acceptance:
+                            act.date_acceptance = date_acceptance
+                        if date_publication and not act.date_publication:
+                            act.date_publication = date_publication
+                        
+                        # Update dataset metadata
+                        act.dataset_id = dataset_id or doc.get("_dataset_id")
+                        act.dataset_metadata = doc
+                        act.source = "open_data"
+                        
+                        updated += 1
+                    else:
+                        # Create new act with all available information
+                        new_act = LegalAct(
+                            nreg=nreg,
+                            title=title,
+                            status=status,
+                            document_type=document_type,
+                            date_acceptance=date_acceptance,
+                            date_publication=date_publication,
+                            dataset_id=dataset_id or doc.get("_dataset_id"),
+                            dataset_metadata=doc,
+                            source="open_data",
+                            is_processed=False
+                        )
+                        bg_db.add(new_act)
+                        created += 1
+                    
+                    # Commit every 100 acts
+                    if (created + updated) % 100 == 0:
+                        bg_db.commit()
+                        logger.info(f"Progress: {created} created, {updated} updated, {skipped} skipped (total processed: {created + updated})")
+                
+                except Exception as e:
+                    logger.error(f"Error processing document {doc.get('nreg', 'unknown')}: {e}")
+                    bg_db.rollback()
+                    skipped += 1
+                    continue
+            
+            # Final commit
+            bg_db.commit()
+            logger.info(f"Download completed: {created} created, {updated} updated, {skipped} skipped, total: {len(all_documents)}")
+            
+        except Exception as e:
+            logger.error(f"Error in download_all_documents_task: {e}", exc_info=True)
+        finally:
+            bg_db.close()
+    
+    background_tasks.add_task(lambda: asyncio.run(download_all_documents_task()))
+    return {
+        "message": f"Завантаження документів з датасету запущено в фоновому режимі (dataset_id={dataset_id})",
+        "status": "queued",
+        "dataset_id": dataset_id
+    }
 
 
 @router.post("/rada-list/sync-all")

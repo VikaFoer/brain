@@ -255,3 +255,6 @@ class VectorDAO:
             logger.error("Search failed", error=str(e))
             return []
 
+
+
+

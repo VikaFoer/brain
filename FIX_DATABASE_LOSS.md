@@ -62,3 +62,6 @@ https://your-app.railway.app/api/legal-acts/initialize-categories
 2. Перевірте логи Railway - чи підключається до PostgreSQL
 3. Переконайтеся, що ви ініціалізуєте категорії після кожного деплою (або налаштуйте автоматичну ініціалізацію)
 
+
+
+

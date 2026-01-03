@@ -31,3 +31,6 @@ Railway автоматично надає змінну `PORT` - додаток �
 Після деплою перевірте:
 - Health check: `https://your-app.railway.app/health`
 - API docs: `https://your-app.railway.app/docs`
+
+
+

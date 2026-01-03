@@ -80,6 +80,12 @@ function setupEventListeners() {
         downloadActiveAndProcessBtn.addEventListener('click', () => downloadActiveActs(true));
     }
     
+    // Download from dataset button
+    const downloadFromDatasetBtn = document.getElementById('download-from-dataset-btn');
+    if (downloadFromDatasetBtn) {
+        downloadFromDatasetBtn.addEventListener('click', downloadFromDataset);
+    }
+    
     // Process all overnight button
     const processAllOvernightBtn = document.getElementById('process-all-overnight-btn');
     if (processAllOvernightBtn) {

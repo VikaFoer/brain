@@ -69,3 +69,6 @@ Railway автоматично підключить змінну `DATABASE_URL` 
    - `⚠️ WARNING: SQLite will lose data` - неправильно ❌
 3. Перевірте, чи змінна `DATABASE_URL` дійсно додана в сервіс з додатком
 
+
+
+

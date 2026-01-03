@@ -858,6 +858,148 @@ class RadaAPIService:
         logger.warning("Could not extract NREG identifiers from open data dataset")
         return []
     
+    async def get_all_documents_from_dataset(self, dataset_id: Optional[str] = None, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        Get ALL documents from open data dataset without filtering by NREG
+        Returns full document records with all available fields
+        
+        Args:
+            dataset_id: Dataset ID (e.g., "laws", "docs", "dict"). If None, will try to find automatically
+            limit: Optional limit on number of documents to return
+        
+        Returns:
+            List of document dictionaries with all fields from dataset
+        """
+        if not dataset_id:
+            # Try configured dataset ID first
+            dataset_id = self.open_data_dataset_id
+        
+        if not dataset_id:
+            logger.info("Dataset ID not provided, searching for legal acts dataset...")
+            dataset_id = await self.find_legal_acts_dataset_id()
+        
+        if not dataset_id:
+            logger.error("Could not find legal acts dataset ID")
+            return []
+        
+        logger.info(f"Fetching all documents from open data portal, dataset ID: {dataset_id}")
+        
+        # Special handling for "laws" registry - it contains sub-datasets
+        if dataset_id == "laws":
+            logger.info("Dataset 'laws' is a registry. Trying to fetch from 'docs' sub-dataset...")
+            docs_dataset = await self.get_open_data_dataset("docs", format="json")
+            if docs_dataset:
+                documents = self._extract_all_documents_from_dataset(docs_dataset)
+                if documents:
+                    logger.info(f"✅ Successfully extracted {len(documents)} documents from 'docs' dataset")
+                    if limit and len(documents) > limit:
+                        return documents[:limit]
+                    return documents
+        
+        # Try JSON format first
+        dataset = await self.get_open_data_dataset(dataset_id, format="json")
+        
+        if dataset:
+            documents = self._extract_all_documents_from_dataset(dataset)
+            if documents:
+                logger.info(f"Found {len(documents)} documents from open data portal")
+                if limit and len(documents) > limit:
+                    return documents[:limit]
+                return documents
+        
+        # Fallback to CSV if JSON didn't work
+        logger.info("JSON format didn't work, trying CSV...")
+        dataset_csv = await self.get_open_data_dataset(dataset_id, format="csv")
+        
+        if dataset_csv:
+            documents = self._extract_all_documents_from_dataset(dataset_csv)
+            if documents:
+                logger.info(f"Found {len(documents)} documents from CSV format")
+                if limit and len(documents) > limit:
+                    return documents[:limit]
+                return documents
+        
+        logger.warning("Could not extract documents from open data dataset")
+        return []
+    
+    def _extract_all_documents_from_dataset(self, dataset: Any) -> List[Dict[str, Any]]:
+        """
+        Extract ALL documents from dataset structure without filtering
+        Returns full document records with all available fields
+        
+        Args:
+            dataset: Dataset structure (list, dict, etc.)
+        
+        Returns:
+            List of document dictionaries
+        """
+        documents = []
+        
+        # Extract documents from dataset
+        items_to_process = []
+        
+        if isinstance(dataset, list):
+            items_to_process = dataset
+        elif isinstance(dataset, dict):
+            # Try common keys that might contain list of documents
+            for key in ["data", "items", "results", "documents", "acts", "docs", "list", "records"]:
+                if key in dataset and isinstance(dataset[key], list):
+                    items_to_process = dataset[key]
+                    break
+            
+            # If no list found, the dict itself might be a single document
+            if not items_to_process and len(dataset) > 0:
+                # Check if it looks like a document (has common fields)
+                if any(key in dataset for key in ["nreg", "NREG", "title", "name", "id", "number"]):
+                    items_to_process = [dataset]
+        
+        # Process all items as documents
+        for item in items_to_process:
+            if isinstance(item, dict):
+                # Keep all fields from the document
+                # Try to extract NREG for identification
+                nreg = None
+                for field_name in ["nreg", "NREG", "nreg_id", "document_id", "doc_id", 
+                                  "number", "id", "identifier", "code", "nreg_number",
+                                  "document_number", "act_number", "law_number"]:
+                    if field_name in item:
+                        value = item[field_name]
+                        if value:
+                            nreg_str = str(value).strip()
+                            # Use NREG if valid, otherwise use any identifier
+                            if self._is_valid_nreg(nreg_str):
+                                nreg = nreg_str
+                                break
+                            elif not nreg:  # Use first available identifier as fallback
+                                nreg = nreg_str
+                
+                # If no NREG found, try to generate one from available fields
+                if not nreg:
+                    # Try to create identifier from available fields
+                    for field_name in ["id", "number", "identifier", "code"]:
+                        if field_name in item and item[field_name]:
+                            nreg = str(item[field_name]).strip()
+                            break
+                    
+                    # Last resort: use index or hash
+                    if not nreg:
+                        import hashlib
+                        item_str = str(item)[:100]
+                        nreg = f"doc_{hashlib.md5(item_str.encode()).hexdigest()[:8]}"
+                
+                # Add NREG to document if not present
+                if "nreg" not in item and "NREG" not in item:
+                    item["nreg"] = nreg
+                
+                # Add dataset metadata
+                item["_dataset_id"] = getattr(self, 'open_data_dataset_id', None)
+                item["_source"] = "open_data"
+                
+                documents.append(item)
+        
+        logger.info(f"Extracted {len(documents)} documents from dataset")
+        return documents
+    
     def _is_valid_nreg(self, nreg: str) -> bool:
         """
         Validate NREG format

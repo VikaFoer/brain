@@ -948,8 +948,8 @@ async def download_active_acts(
             logger.info(f"✅ Завантаження завершено: {created} створено, {updated} оновлено, {skipped_inactive} пропущено (недіючі)")
             
             # Обробка через OpenAI якщо потрібно
-            if process and active_nregs:
-                logger.info(f"🤖 Початок обробки {len(active_nregs)} діючих НПА через OpenAI...")
+            if process and active_documents:
+                logger.info(f"🤖 Початок обробки {len(active_documents)} діючих НПА через OpenAI...")
                 processing_service = ProcessingService(bg_db)
                 processed = 0
                 failed = 0

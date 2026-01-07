@@ -442,6 +442,16 @@ class RadaAPIService:
                     documents = documents[:limit]
                 
                 logger.info(f"Found {total_links_found} links, {len(documents)} valid documents, {invalid_count} invalid NREGs filtered out")
+                
+                # If no documents found, log sample of HTML for debugging
+                if len(documents) == 0 and total_links_found == 0:
+                    # Try to find any links in the HTML
+                    all_links = soup.find_all('a', href=True)
+                    logger.warning(f"No document links found. Total links in HTML: {len(all_links)}")
+                    if len(all_links) > 0:
+                        sample_links = [link.get('href', '')[:100] for link in all_links[:5]]
+                        logger.debug(f"Sample links found: {sample_links}")
+                
                 return documents
                 
         except Exception as e:

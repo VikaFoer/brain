@@ -103,9 +103,11 @@ function setupEventListeners() {
     }
     
     // View toggle buttons (database vs API)
+    // Try multiple ways to attach event listeners
     const viewDatabaseBtn = document.getElementById('view-database-btn');
     const viewApiBtn = document.getElementById('view-api-btn');
     console.log('View toggle buttons:', { viewDatabaseBtn: !!viewDatabaseBtn, viewApiBtn: !!viewApiBtn });
+    
     if (viewDatabaseBtn && viewApiBtn) {
         viewDatabaseBtn.addEventListener('click', () => {
             console.log('View database button clicked');
@@ -123,6 +125,17 @@ function setupEventListeners() {
             apiView: !!document.getElementById('api-view')
         });
     }
+    
+    // Also attach via data-view attribute (fallback)
+    document.querySelectorAll('.view-toggle-btn[data-view]').forEach(btn => {
+        const view = btn.getAttribute('data-view');
+        if (view) {
+            btn.addEventListener('click', () => {
+                console.log(`View toggle button clicked (via data-view): ${view}`);
+                switchView(view);
+            });
+        }
+    });
     
     // Available acts controls
     const loadAvailableActsBtn = document.getElementById('load-available-acts-btn');

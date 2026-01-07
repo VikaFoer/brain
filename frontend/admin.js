@@ -102,6 +102,37 @@ function setupEventListeners() {
         console.error('process-all-overnight-btn not found!');
     }
     
+    // View toggle buttons (database vs API)
+    const viewDatabaseBtn = document.getElementById('view-database-btn');
+    const viewApiBtn = document.getElementById('view-api-btn');
+    if (viewDatabaseBtn && viewApiBtn) {
+        viewDatabaseBtn.addEventListener('click', () => switchView('database'));
+        viewApiBtn.addEventListener('click', () => switchView('api'));
+    } else {
+        console.error('View toggle buttons not found!');
+    }
+    
+    // Available acts controls
+    const loadAvailableActsBtn = document.getElementById('load-available-acts-btn');
+    const availableActsTypeSelect = document.getElementById('available-acts-type');
+    const downloadSelectedActsBtn = document.getElementById('download-selected-acts-btn');
+    
+    if (loadAvailableActsBtn) {
+        loadAvailableActsBtn.addEventListener('click', () => loadAvailableActs(true));
+    }
+    
+    if (availableActsTypeSelect) {
+        availableActsTypeSelect.addEventListener('change', () => {
+            availableActsPagination.listType = availableActsTypeSelect.value;
+            availableActsPagination.skip = 0;
+            loadAvailableActs(true);
+        });
+    }
+    
+    if (downloadSelectedActsBtn) {
+        downloadSelectedActsBtn.addEventListener('click', downloadSelectedActs);
+    }
+    
     // Auto-refresh Rada list when tab is active
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
@@ -1630,8 +1661,289 @@ function renderDatabaseSchema(data) {
     container.innerHTML = html;
 }
 
+// Switch between database and API views
+function switchView(view) {
+    const databaseView = document.getElementById('database-view');
+    const apiView = document.getElementById('api-view');
+    const viewDatabaseBtn = document.getElementById('view-database-btn');
+    const viewApiBtn = document.getElementById('view-api-btn');
+    
+    if (!databaseView || !apiView || !viewDatabaseBtn || !viewApiBtn) {
+        console.error('View elements not found!');
+        return;
+    }
+    
+    if (view === 'database') {
+        databaseView.style.display = 'block';
+        apiView.style.display = 'none';
+        viewDatabaseBtn.classList.add('active');
+        viewApiBtn.classList.remove('active');
+    } else {
+        databaseView.style.display = 'none';
+        apiView.style.display = 'block';
+        viewDatabaseBtn.classList.remove('active');
+        viewApiBtn.classList.add('active');
+        
+        // Load available acts if not loaded yet
+        if (availableActsList.length === 0) {
+            loadAvailableActs(true);
+        }
+    }
+}
+
+// Load available acts from API
+async function loadAvailableActs(reset = true) {
+    const container = document.getElementById('available-acts-list');
+    const statsContainer = document.getElementById('available-acts-stats');
+    const paginationContainer = document.getElementById('available-acts-pagination');
+    
+    if (!container) {
+        console.error('available-acts-list container not found!');
+        return;
+    }
+    
+    if (reset) {
+        availableActsPagination.skip = 0;
+        availableActsList = [];
+        container.innerHTML = '<p class="loading">Завантаження списку доступних НПА з Rada API...</p>';
+        if (statsContainer) statsContainer.innerHTML = '';
+        if (paginationContainer) paginationContainer.style.display = 'none';
+    }
+    
+    const listType = availableActsPagination.listType;
+    const skip = availableActsPagination.skip;
+    const limit = availableActsPagination.limit;
+    
+    try {
+        const url = `${API_BASE}/legal-acts/available-acts?list_type=${listType}&skip=${skip}&limit=${limit}`;
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        
+        if (reset) {
+            availableActsList = data.acts || [];
+        } else {
+            availableActsList = [...availableActsList, ...(data.acts || [])];
+        }
+        
+        availableActsPagination.total = data.total || 0;
+        availableActsPagination.hasMore = data.has_more || false;
+        
+        // Update stats
+        if (statsContainer) {
+            statsContainer.innerHTML = `
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; padding: 15px; background: var(--bg-card); border-radius: 8px;">
+                    <div>
+                        <div style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 5px;">Всього знайдено</div>
+                        <div style="font-size: 1.5rem; font-weight: 600; color: var(--primary);">${data.total || 0}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 5px;">Завантажено</div>
+                        <div style="font-size: 1.5rem; font-weight: 600; color: var(--success);">${data.loaded || 0}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 5px;">Оброблено</div>
+                        <div style="font-size: 1.5rem; font-weight: 600; color: var(--info);">${data.processed || 0}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 5px;">Не завантажено</div>
+                        <div style="font-size: 1.5rem; font-weight: 600; color: var(--warning);">${data.not_loaded || 0}</div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Render acts list
+        renderAvailableActsList();
+        
+        // Update pagination
+        if (paginationContainer && data.total > 0) {
+            paginationContainer.style.display = 'flex';
+            updateAvailableActsPagination();
+        }
+        
+    } catch (error) {
+        console.error('Error loading available acts:', error);
+        container.innerHTML = `<p class="error">❌ Помилка завантаження: ${error.message}</p>`;
+    }
+}
+
+// Render available acts list
+function renderAvailableActsList() {
+    const container = document.getElementById('available-acts-list');
+    if (!container) return;
+    
+    if (availableActsList.length === 0) {
+        container.innerHTML = '<p class="loading">Документи не знайдені</p>';
+        return;
+    }
+    
+    const listContainer = document.createElement('div');
+    listContainer.className = 'rada-list-container';
+    
+    availableActsList.forEach((act, index) => {
+        const actCard = document.createElement('div');
+        actCard.className = `rada-act-item ${act.status === 'processed' ? 'processed' : act.status === 'loaded' ? 'loaded' : 'not-loaded'}`;
+        actCard.dataset.nreg = act.nreg;
+        
+        const statusIcon = act.is_processed ? '✅' : act.in_database ? '📥' : '❌';
+        const statusClass = act.is_processed ? 'processed' : act.in_database ? 'loaded' : 'not-loaded';
+        
+        actCard.innerHTML = `
+            <div class="rada-act-info">
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                    <input type="checkbox" class="act-checkbox" data-nreg="${escapeHtml(act.nreg)}" ${act.in_database ? 'disabled' : ''}>
+                    <div class="rada-act-nreg">${escapeHtml(act.nreg)}</div>
+                    <span class="rada-act-status ${statusClass}">${statusIcon} ${act.status_label || act.status}</span>
+                </div>
+                <div class="rada-act-title">${escapeHtml(act.title || act.nreg)}</div>
+                ${act.date_acceptance ? `<div class="rada-act-meta">📅 Прийнято: ${new Date(act.date_acceptance).toLocaleDateString('uk-UA')}</div>` : ''}
+                ${act.document_type ? `<div class="rada-act-meta">📄 Тип: ${escapeHtml(act.document_type)}</div>` : ''}
+                ${act.url ? `<div class="rada-act-meta"><a href="${escapeHtml(act.url)}" target="_blank">🔗 Переглянути на сайті</a></div>` : ''}
+            </div>
+            <div class="rada-act-actions">
+                ${!act.in_database ? `<button class="btn btn-small btn-primary" onclick="downloadAct('${escapeHtml(act.nreg)}')">📥 Завантажити</button>` : ''}
+                ${act.in_database && !act.is_processed ? `<button class="btn btn-small btn-success" onclick="processAct('${escapeHtml(act.nreg)}')">⚙️ Обробити</button>` : ''}
+                ${act.in_database ? `<button class="btn btn-small btn-info" onclick="showActDetails('${escapeHtml(act.nreg)}')">👁️ Деталі</button>` : ''}
+            </div>
+        `;
+        
+        listContainer.appendChild(actCard);
+    });
+    
+    container.innerHTML = '';
+    container.appendChild(listContainer);
+    
+    // Update selected count
+    updateSelectedCount();
+    
+    // Add checkbox listeners
+    document.querySelectorAll('.act-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', updateSelectedCount);
+    });
+}
+
+// Update selected acts count
+function updateSelectedCount() {
+    const selected = document.querySelectorAll('.act-checkbox:checked:not(:disabled)');
+    const count = selected.length;
+    const countSpan = document.getElementById('selected-count');
+    const downloadBtn = document.getElementById('download-selected-acts-btn');
+    
+    if (countSpan) countSpan.textContent = count;
+    if (downloadBtn) {
+        downloadBtn.style.display = count > 0 ? 'inline-flex' : 'none';
+    }
+}
+
+// Update pagination controls
+function updateAvailableActsPagination() {
+    const container = document.getElementById('available-acts-pagination');
+    if (!container) return;
+    
+    const { skip, limit, total, hasMore } = availableActsPagination;
+    const currentPage = Math.floor(skip / limit) + 1;
+    const totalPages = Math.ceil(total / limit);
+    
+    container.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 15px;">
+            <div style="color: var(--text-muted);">
+                Сторінка ${currentPage} з ${totalPages || 1} (всього: ${total})
+            </div>
+            <div style="display: flex; gap: 10px;">
+                <button class="btn btn-small btn-secondary" ${skip === 0 ? 'disabled' : ''} onclick="loadAvailableActsPage(${skip - limit})">
+                    ← Попередня
+                </button>
+                <button class="btn btn-small btn-secondary" ${!hasMore ? 'disabled' : ''} onclick="loadAvailableActsPage(${skip + limit})">
+                    Наступна →
+                </button>
+            </div>
+        </div>
+    `;
+}
+
+// Load specific page
+window.loadAvailableActsPage = function(newSkip) {
+    availableActsPagination.skip = Math.max(0, newSkip);
+    loadAvailableActs(true);
+};
+
+// Download single act
+window.downloadAct = async function(nreg) {
+    try {
+        const response = await fetch(`${API_BASE}/legal-acts/${encodeURIComponent(nreg)}/check`, {
+            method: 'GET'
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.exists) {
+            // Act exists, try to download it
+            showNotification('info', `Завантаження акту ${nreg}...`, 3000);
+            // Trigger download by processing
+            await processAct(nreg);
+        } else {
+            showNotification('warning', `Акт ${nreg} не знайдено на сайті`, 5000);
+        }
+    } catch (error) {
+        console.error('Error downloading act:', error);
+        showNotification('error', `Помилка завантаження: ${error.message}`, 5000);
+    }
+};
+
+// Download selected acts
+async function downloadSelectedActs() {
+    const selected = Array.from(document.querySelectorAll('.act-checkbox:checked:not(:disabled)'))
+        .map(cb => cb.dataset.nreg);
+    
+    if (selected.length === 0) {
+        showNotification('warning', 'Виберіть хоча б один акт для завантаження', 3000);
+        return;
+    }
+    
+    const btn = document.getElementById('download-selected-acts-btn');
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span>⏳</span> Завантаження...';
+    
+    showNotification('info', `Завантаження ${selected.length} актів...`, 5000);
+    
+    let success = 0;
+    let failed = 0;
+    
+    for (const nreg of selected) {
+        try {
+            await downloadAct(nreg);
+            success++;
+            await new Promise(resolve => setTimeout(resolve, 2000)); // Rate limiting
+        } catch (error) {
+            failed++;
+            console.error(`Failed to download ${nreg}:`, error);
+        }
+    }
+    
+    btn.disabled = false;
+    btn.innerHTML = originalText;
+    
+    showNotification('success', `Завантажено: ${success}, Помилок: ${failed}`, 5000);
+    
+    // Refresh list
+    setTimeout(() => loadAvailableActs(true), 2000);
+}
+
 // Make functions available globally
 window.showActDetails = showActDetails;
 window.processAct = processAct;
 window.checkActOnRada = checkActOnRada;
 window.downloadFromDataset = downloadFromDataset;
+window.switchView = switchView;
+window.downloadAct = downloadAct;
+window.loadAvailableActsPage = loadAvailableActsPage;

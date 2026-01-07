@@ -1064,6 +1064,94 @@ async def process_legal_act_by_path(
         )
 
 
+@router.get("/available-acts")
+async def get_available_acts_list(
+    list_type: str = Query("updated", description="Type of list: 'all', 'updated', 'new_today', 'new_30days'"),
+    limit: Optional[int] = Query(100, description="Maximum number of acts to return"),
+    skip: int = Query(0, description="Number of acts to skip (for pagination)"),
+    db: Session = Depends(get_db)
+):
+    """
+    Отримати перелік всіх доступних НПА з Rada API з метадатою
+    Повертає список документів з назвами, NREG, посиланнями тощо
+    """
+    from app.services.rada_api import rada_api
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
+    try:
+        # Get list from API
+        acts_list = await rada_api.get_all_acts_list_with_metadata(
+            list_type=list_type,
+            limit=limit,
+            skip=skip
+        )
+        
+        if not acts_list:
+            return {
+                "total": 0,
+                "skip": skip,
+                "limit": limit,
+                "has_more": False,
+                "acts": [],
+                "message": f"Не знайдено документів типу '{list_type}'. Спробуйте інший тип списку."
+            }
+        
+        # Check which acts are already in database
+        existing_nregs = {act.nreg for act in db.query(LegalAct.nreg).all()}
+        
+        # Enrich with database status
+        enriched_acts = []
+        for act in acts_list:
+            nreg = act.get("nreg")
+            in_db = nreg in existing_nregs if nreg else False
+            
+            # Get additional info from database if available
+            db_act = None
+            if in_db:
+                db_act = db.query(LegalAct).filter(LegalAct.nreg == nreg).first()
+            
+            enriched_act = {
+                "nreg": nreg,
+                "title": act.get("title", nreg),
+                "url": act.get("url"),
+                "card_url": act.get("card_url"),
+                "in_database": in_db,
+                "is_processed": db_act.is_processed if db_act else False,
+                "status": "processed" if (db_act and db_act.is_processed) else ("loaded" if in_db else "not_loaded"),
+                "status_label": "✅ Оброблено" if (db_act and db_act.is_processed) else ("📥 Завантажено" if in_db else "❌ Не завантажено"),
+                "date_acceptance": db_act.date_acceptance.isoformat() if (db_act and db_act.date_acceptance) else None,
+                "date_publication": db_act.date_publication.isoformat() if (db_act and db_act.date_publication) else None,
+                "document_type": db_act.document_type if db_act else None
+            }
+            enriched_acts.append(enriched_act)
+        
+        # Count statistics
+        total = len(enriched_acts)
+        loaded = len([a for a in enriched_acts if a["in_database"]])
+        processed = len([a for a in enriched_acts if a["is_processed"]])
+        
+        return {
+            "total": total,
+            "loaded": loaded,
+            "processed": processed,
+            "not_loaded": total - loaded,
+            "skip": skip,
+            "limit": limit,
+            "has_more": len(acts_list) == limit,  # If we got exactly limit, there might be more
+            "list_type": list_type,
+            "acts": enriched_acts
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting available acts list: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching available acts list: {str(e)}"
+        )
+
+
 @router.get("/{nreg:path}", response_model=LegalActResponse)
 async def get_legal_act(
     nreg: str = Path(..., description="Номер реєстрації акту"),

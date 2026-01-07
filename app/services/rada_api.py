@@ -336,6 +336,105 @@ class RadaAPIService:
             logger.error(f"Exception getting text {nreg}: {e}")
             return None
     
+    async def get_all_acts_list_with_metadata(
+        self, 
+        list_type: str = "all",
+        limit: Optional[int] = None,
+        skip: int = 0
+    ) -> List[Dict[str, Any]]:
+        """
+        Get list of all available legal acts with metadata (title, dates, status, etc.)
+        
+        Args:
+            list_type: Type of list to get:
+                - "all": All documents (if available via API)
+                - "updated": Updated documents (/laws/main/r)
+                - "new_today": New documents today (/laws/main/nn)
+                - "new_30days": New documents in last 30 days (/laws/main/n)
+            limit: Maximum number of documents to return
+            skip: Number of documents to skip (for pagination)
+        
+        Returns:
+            List of documents with metadata: [{"nreg": "...", "title": "...", "date": "...", ...}, ...]
+        """
+        await self._rate_limit()
+        
+        # Map list_type to URL
+        url_map = {
+            "all": f"{self.base_url}/laws/main/all",
+            "updated": f"{self.base_url}/laws/main/r",
+            "new_today": f"{self.base_url}/laws/main/nn",
+            "new_30days": f"{self.base_url}/laws/main/n"
+        }
+        
+        url = url_map.get(list_type, url_map["updated"])
+        logger.info(f"Fetching {list_type} documents list from {url}...")
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                headers = self._get_headers(use_token=False)  # HTML lists don't need token
+                response = await client.get(url, headers=headers, timeout=60.0, follow_redirects=True)
+                
+                if response.status_code != 200:
+                    logger.error(f"Failed to get documents list: {response.status_code}")
+                    return []
+                
+                from bs4 import BeautifulSoup
+                from urllib.parse import unquote
+                import re
+                
+                soup = BeautifulSoup(response.text, 'html.parser')
+                documents = []
+                seen_nregs = set()
+                
+                # Find all document links
+                for link in soup.find_all('a', href=True):
+                    href = link.get('href', '')
+                    if '/laws/show/' in href or '/laws/card/' in href:
+                        # Extract NREG from URL
+                        match = re.search(r'/laws/(?:show|card)/([^"\s<>\.\?&#]+)', href)
+                        if match:
+                            nreg = match.group(1)
+                            nreg = nreg.replace('.json', '').replace('.txt', '').replace('.html', '')
+                            if '?' in nreg:
+                                nreg = nreg.split('?')[0]
+                            
+                            try:
+                                decoded_nreg = unquote(nreg)
+                            except:
+                                decoded_nreg = nreg
+                            
+                            # Skip if already seen or invalid
+                            if decoded_nreg in seen_nregs or not self._is_valid_nreg(decoded_nreg):
+                                continue
+                            
+                            seen_nregs.add(decoded_nreg)
+                            
+                            # Try to extract title from link text
+                            title = link.get_text(strip=True)
+                            if not title or len(title) < 3:
+                                title = decoded_nreg
+                            
+                            documents.append({
+                                "nreg": decoded_nreg,
+                                "title": title,
+                                "url": f"{self.base_url}/laws/show/{decoded_nreg}",
+                                "card_url": f"{self.base_url}/laws/card/{decoded_nreg}.json"
+                            })
+                
+                # Apply pagination
+                if skip > 0:
+                    documents = documents[skip:]
+                if limit:
+                    documents = documents[:limit]
+                
+                logger.info(f"Found {len(documents)} documents from {list_type} list")
+                return documents
+                
+        except Exception as e:
+            logger.error(f"Error getting {list_type} documents list: {e}", exc_info=True)
+            return []
+    
     async def get_updated_documents_list(self) -> List[str]:
         """Get list of updated document nregs"""
         await self._rate_limit()

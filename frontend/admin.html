@@ -145,9 +145,34 @@
                             </div>
                             <div class="progress-details" id="progress-details"></div>
                         </div>
+                        <div id="rada-list" class="rada-list">
+                            <p class="loading">Натисніть "Оновити список НПА" для отримання переліку всіх НПА з Rada API</p>
+                        </div>
                     </div>
-                    <div id="rada-list" class="rada-list">
-                        <p class="loading">Натисніть "Оновити список НПА" для отримання переліку всіх НПА з Rada API</p>
+                    
+                    <!-- API view (new) -->
+                    <div id="api-view" class="view-content" style="display: none;">
+                        <div class="rada-list-header">
+                            <div class="rada-list-actions" style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px;">
+                                <select id="available-acts-type" style="padding: 10px 15px; background: var(--bg-card); border: 1px solid var(--border); color: var(--text); border-radius: 8px; font-size: 14px;">
+                                    <option value="updated">🔄 Поновлені документи</option>
+                                    <option value="new_today">🆕 Нові за сьогодні</option>
+                                    <option value="new_30days">📅 Нові за 30 днів</option>
+                                    <option value="all">📋 Всі документи</option>
+                                </select>
+                                <button id="load-available-acts-btn" class="btn btn-primary">
+                                    <span>🔄</span> Завантажити список
+                                </button>
+                                <button id="download-selected-acts-btn" class="btn btn-success" style="display: none;">
+                                    <span>📥</span> Завантажити вибрані (<span id="selected-count">0</span>)
+                                </button>
+                            </div>
+                            <div id="available-acts-stats" class="rada-stats" style="margin-bottom: 20px;"></div>
+                        </div>
+                        <div id="available-acts-list" class="rada-list">
+                            <p class="loading">Виберіть тип списку та натисніть "Завантажити список"</p>
+                        </div>
+                        <div id="available-acts-pagination" class="pagination" style="margin-top: 20px; display: none;"></div>
                     </div>
                 </div>
 

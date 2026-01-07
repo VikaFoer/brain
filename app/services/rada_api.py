@@ -391,6 +391,7 @@ class RadaAPIService:
                 for link in soup.find_all('a', href=True):
                     href = link.get('href', '')
                     if '/laws/show/' in href or '/laws/card/' in href:
+                        total_links_found += 1
                         # Extract NREG from URL
                         match = re.search(r'/laws/(?:show|card)/([^"\s<>\.\?&#]+)', href)
                         if match:
@@ -404,8 +405,16 @@ class RadaAPIService:
                             except:
                                 decoded_nreg = nreg
                             
-                            # Skip if already seen or invalid
-                            if decoded_nreg in seen_nregs or not self._is_valid_nreg(decoded_nreg):
+                            # Skip if already seen
+                            if decoded_nreg in seen_nregs:
+                                continue
+                            
+                            # For list pages, use more lenient validation
+                            is_valid = self._is_valid_nreg_for_list(decoded_nreg)
+                            if not is_valid:
+                                invalid_count += 1
+                                if invalid_count <= 5:  # Log first 5 invalid ones for debugging
+                                    logger.debug(f"Skipping invalid NREG from list: '{decoded_nreg}' (from href: {href})")
                                 continue
                             
                             seen_nregs.add(decoded_nreg)
@@ -428,7 +437,7 @@ class RadaAPIService:
                 if limit:
                     documents = documents[:limit]
                 
-                logger.info(f"Found {len(documents)} documents from {list_type} list")
+                logger.info(f"Found {total_links_found} links, {len(documents)} valid documents, {invalid_count} invalid NREGs filtered out")
                 return documents
                 
         except Exception as e:

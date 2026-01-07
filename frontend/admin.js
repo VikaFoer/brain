@@ -105,11 +105,23 @@ function setupEventListeners() {
     // View toggle buttons (database vs API)
     const viewDatabaseBtn = document.getElementById('view-database-btn');
     const viewApiBtn = document.getElementById('view-api-btn');
+    console.log('View toggle buttons:', { viewDatabaseBtn: !!viewDatabaseBtn, viewApiBtn: !!viewApiBtn });
     if (viewDatabaseBtn && viewApiBtn) {
-        viewDatabaseBtn.addEventListener('click', () => switchView('database'));
-        viewApiBtn.addEventListener('click', () => switchView('api'));
+        viewDatabaseBtn.addEventListener('click', () => {
+            console.log('View database button clicked');
+            switchView('database');
+        });
+        viewApiBtn.addEventListener('click', () => {
+            console.log('View API button clicked');
+            switchView('api');
+        });
     } else {
-        console.error('View toggle buttons not found!');
+        console.error('View toggle buttons not found!', {
+            viewDatabaseBtn: !!viewDatabaseBtn,
+            viewApiBtn: !!viewApiBtn,
+            databaseView: !!document.getElementById('database-view'),
+            apiView: !!document.getElementById('api-view')
+        });
     }
     
     // Available acts controls
@@ -1700,15 +1712,18 @@ function switchView(view) {
         viewDatabaseBtn.classList.remove('active');
         viewApiBtn.classList.add('active');
         
-        // Load available acts if not loaded yet
+        // Always show loading state and try to load
         console.log('Available acts list length:', availableActsList.length);
-        if (availableActsList.length === 0) {
-            console.log('Loading available acts...');
-            loadAvailableActs(true);
-        } else {
-            console.log('Acts already loaded, rendering...');
-            renderAvailableActsList();
+        const container = document.getElementById('available-acts-list');
+        if (container) {
+            container.innerHTML = '<p class="loading">⏳ Завантаження списку доступних НПА з Rada API...</p>';
         }
+        
+        // Load available acts (always reload when switching to API view)
+        console.log('Loading available acts...');
+        setTimeout(() => {
+            loadAvailableActs(true);
+        }, 100); // Small delay to ensure view is visible
     }
 }
 

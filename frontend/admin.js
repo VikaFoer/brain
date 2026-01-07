@@ -1663,36 +1663,59 @@ function renderDatabaseSchema(data) {
 
 // Switch between database and API views
 function switchView(view) {
+    console.log('switchView called with view:', view);
+    
     const databaseView = document.getElementById('database-view');
     const apiView = document.getElementById('api-view');
     const viewDatabaseBtn = document.getElementById('view-database-btn');
     const viewApiBtn = document.getElementById('view-api-btn');
     
+    console.log('Elements found:', {
+        databaseView: !!databaseView,
+        apiView: !!apiView,
+        viewDatabaseBtn: !!viewDatabaseBtn,
+        viewApiBtn: !!viewApiBtn
+    });
+    
     if (!databaseView || !apiView || !viewDatabaseBtn || !viewApiBtn) {
-        console.error('View elements not found!');
+        console.error('View elements not found!', {
+            databaseView: !!databaseView,
+            apiView: !!apiView,
+            viewDatabaseBtn: !!viewDatabaseBtn,
+            viewApiBtn: !!viewApiBtn
+        });
         return;
     }
     
     if (view === 'database') {
+        console.log('Switching to database view');
         databaseView.style.display = 'block';
         apiView.style.display = 'none';
         viewDatabaseBtn.classList.add('active');
         viewApiBtn.classList.remove('active');
     } else {
+        console.log('Switching to API view');
         databaseView.style.display = 'none';
         apiView.style.display = 'block';
         viewDatabaseBtn.classList.remove('active');
         viewApiBtn.classList.add('active');
         
         // Load available acts if not loaded yet
+        console.log('Available acts list length:', availableActsList.length);
         if (availableActsList.length === 0) {
+            console.log('Loading available acts...');
             loadAvailableActs(true);
+        } else {
+            console.log('Acts already loaded, rendering...');
+            renderAvailableActsList();
         }
     }
 }
 
 // Load available acts from API
 async function loadAvailableActs(reset = true) {
+    console.log('loadAvailableActs called, reset:', reset);
+    
     const container = document.getElementById('available-acts-list');
     const statsContainer = document.getElementById('available-acts-stats');
     const paginationContainer = document.getElementById('available-acts-pagination');
@@ -1702,10 +1725,12 @@ async function loadAvailableActs(reset = true) {
         return;
     }
     
+    console.log('Container found, resetting if needed...');
+    
     if (reset) {
         availableActsPagination.skip = 0;
         availableActsList = [];
-        container.innerHTML = '<p class="loading">Завантаження списку доступних НПА з Rada API...</p>';
+        container.innerHTML = '<p class="loading">⏳ Завантаження списку доступних НПА з Rada API...</p>';
         if (statsContainer) statsContainer.innerHTML = '';
         if (paginationContainer) paginationContainer.style.display = 'none';
     }
@@ -1714,21 +1739,31 @@ async function loadAvailableActs(reset = true) {
     const skip = availableActsPagination.skip;
     const limit = availableActsPagination.limit;
     
+    console.log(`Fetching acts: listType=${listType}, skip=${skip}, limit=${limit}`);
+    
     try {
         const url = `${API_BASE}/legal-acts/available-acts?list_type=${listType}&skip=${skip}&limit=${limit}`;
+        console.log('Fetching from:', url);
+        
         const response = await fetch(url);
+        console.log('Response status:', response.status, response.statusText);
         
         if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Error response:', errorText);
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
         
         const data = await response.json();
+        console.log('Received data:', data);
         
         if (reset) {
             availableActsList = data.acts || [];
         } else {
             availableActsList = [...availableActsList, ...(data.acts || [])];
         }
+        
+        console.log(`Loaded ${availableActsList.length} acts`);
         
         availableActsPagination.total = data.total || 0;
         availableActsPagination.hasMore = data.has_more || false;
@@ -1758,29 +1793,43 @@ async function loadAvailableActs(reset = true) {
         }
         
         // Render acts list
+        console.log('Rendering acts list...');
         renderAvailableActsList();
         
         // Update pagination
         if (paginationContainer && data.total > 0) {
             paginationContainer.style.display = 'flex';
             updateAvailableActsPagination();
+        } else if (data.total === 0) {
+            container.innerHTML = '<p class="loading">📭 Документи не знайдені. Спробуйте інший тип списку.</p>';
         }
+        
+        console.log('loadAvailableActs completed successfully');
         
     } catch (error) {
         console.error('Error loading available acts:', error);
         container.innerHTML = `<p class="error">❌ Помилка завантаження: ${error.message}</p>`;
+        if (statsContainer) statsContainer.innerHTML = '';
     }
 }
 
 // Render available acts list
 function renderAvailableActsList() {
-    const container = document.getElementById('available-acts-list');
-    if (!container) return;
+    console.log('renderAvailableActsList called, acts count:', availableActsList.length);
     
-    if (availableActsList.length === 0) {
-        container.innerHTML = '<p class="loading">Документи не знайдені</p>';
+    const container = document.getElementById('available-acts-list');
+    if (!container) {
+        console.error('available-acts-list container not found in renderAvailableActsList!');
         return;
     }
+    
+    if (availableActsList.length === 0) {
+        console.log('No acts to render');
+        container.innerHTML = '<p class="loading">📭 Документи не знайдені. Натисніть "Завантажити список" для отримання переліку.</p>';
+        return;
+    }
+    
+    console.log('Rendering', availableActsList.length, 'acts');
     
     const listContainer = document.createElement('div');
     listContainer.className = 'rada-list-container';

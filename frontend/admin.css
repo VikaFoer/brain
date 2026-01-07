@@ -805,6 +805,75 @@ header p {
     }
 }
 
+/* View toggle styles */
+.view-toggle {
+    margin-bottom: 20px;
+    padding: 10px;
+    background: var(--card-bg);
+    border-radius: 8px;
+}
+
+.view-toggle-btn {
+    flex: 1;
+    padding: 12px 20px;
+    border: 2px solid transparent;
+    transition: all 0.3s ease;
+}
+
+.view-toggle-btn.active {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+}
+
+.view-toggle-btn:not(.active) {
+    background: transparent;
+    color: var(--text);
+    border-color: var(--border);
+}
+
+.view-toggle-btn:not(.active):hover {
+    background: var(--hover-bg);
+}
+
+.view-content {
+    animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Checkbox styles */
+.act-checkbox {
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+    accent-color: var(--primary);
+}
+
+.act-checkbox:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Pagination styles */
+.pagination {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px;
+    background: var(--card-bg);
+    border-radius: 8px;
+    margin-top: 20px;
+}
+
+.pagination button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
 /* Rada list styles */
 .rada-list-header {
     display: flex;

@@ -100,11 +100,23 @@
 
                 <!-- Rada list tab -->
                 <div id="rada-list-tab" class="tab-content">
-                    <div class="rada-list-header">
-                        <div class="rada-list-actions">
-                            <button id="load-rada-list-btn" class="btn btn-secondary">
-                                <span>🔄</span> Оновити список НПА
-                            </button>
+                    <!-- Toggle between database and API views -->
+                    <div class="view-toggle" style="margin-bottom: 20px; display: flex; gap: 10px; align-items: center;">
+                        <button id="view-database-btn" class="btn btn-primary view-toggle-btn active" data-view="database">
+                            <span>🗄️</span> З бази даних
+                        </button>
+                        <button id="view-api-btn" class="btn btn-secondary view-toggle-btn" data-view="api">
+                            <span>🌐</span> Доступні з API
+                        </button>
+                    </div>
+                    
+                    <!-- Database view (existing) -->
+                    <div id="database-view" class="view-content">
+                        <div class="rada-list-header">
+                            <div class="rada-list-actions">
+                                <button id="load-rada-list-btn" class="btn btn-secondary">
+                                    <span>🔄</span> Оновити список НПА
+                                </button>
                             <button id="download-active-acts-btn" class="btn btn-primary">
                                 <span>📥</span> Завантажити діючі НПА
                             </button>

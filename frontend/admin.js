@@ -16,6 +16,13 @@ let radaPagination = {
     total: 0
 };
 let radaListRefreshInterval = null; // Global variable for auto-refresh interval
+let availableActsList = [];
+let availableActsPagination = {
+    skip: 0,
+    limit: 100,
+    total: 0,
+    listType: 'updated'
+};
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {

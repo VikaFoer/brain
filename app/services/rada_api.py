@@ -1151,7 +1151,7 @@ class RadaAPIService:
     
     def _is_valid_nreg(self, nreg: str) -> bool:
         """
-        Validate NREG format
+        Validate NREG format (strict)
         Valid NREG should contain '/' or '-' (typical Ukrainian format like 254к/96-вр)
         Exclude common invalid patterns like 'links-code', 'doc-dates', etc.
         """
@@ -1170,6 +1170,56 @@ class RadaAPIService:
         
         if nreg_lower in invalid_patterns:
             return False
+        
+        # Must contain '/' or '-' for strict validation
+        if '/' not in nreg and '-' not in nreg:
+            return False
+        
+        return True
+    
+    def _is_valid_nreg_for_list(self, nreg: str) -> bool:
+        """
+        Validate NREG format for list pages (more lenient)
+        Accepts NREGs that look reasonable, even without '/' or '-'
+        """
+        if not nreg or len(nreg) < 3:
+            return False
+        
+        nreg_lower = nreg.lower()
+        
+        # Exclude common invalid patterns
+        invalid_patterns = [
+            'links-code', 'doc-dates', 'dict', 'proj', 'docs',
+            'links', 'dates', 'code', 'id', 'guid', 'identifier',
+            'ist', 'public', 'private', 'static', 'class', 'def',
+            'list', 'data', 'items', 'results', 'documents', 'acts',
+            'show', 'card', 'main', 'laws', 'api', 'json', 'html', 'txt'
+        ]
+        
+        if nreg_lower in invalid_patterns:
+            return False
+        
+        # Exclude if it's just a number or too short
+        if nreg.isdigit() and len(nreg) < 4:
+            return False
+        
+        # Exclude if it contains only common words
+        if nreg_lower in ['all', 'r', 'n', 'nn', 'updated', 'new']:
+            return False
+        
+        # Accept if it contains '/' or '-' (standard format)
+        if '/' in nreg or '-' in nreg:
+            return True
+        
+        # Also accept if it looks like a valid identifier (contains letters and numbers)
+        if any(c.isalpha() for c in nreg) and any(c.isdigit() for c in nreg):
+            return True
+        
+        # Accept if it's reasonably long and contains some structure
+        if len(nreg) >= 5 and (nreg.isalnum() or '.' in nreg or '_' in nreg):
+            return True
+        
+        return False
         
         # Exclude single words that are too short or look like code keywords
         if len(nreg) <= 3 and nreg.isalpha():

@@ -145,6 +145,7 @@ class RadaAPIService:
         await self._rate_limit()
         
         # Try to get/refresh token if needed (but not before every request!)
+        import time
         if not self.token or (self.token_expires_at and time.time() >= self.token_expires_at):
             logger.info("Token missing or expired, obtaining new token...")
             await self.get_token()

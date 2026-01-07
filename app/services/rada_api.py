@@ -17,21 +17,49 @@ class RadaAPIService:
     def __init__(self):
         self.base_url = settings.RADA_API_BASE_URL
         self.token = settings.RADA_API_TOKEN
+        self.token_expires_at = None  # Timestamp when token expires
         self.rate_limit = settings.RADA_API_RATE_LIMIT
         self.delay = settings.RADA_API_DELAY
         self.open_data_dataset_id = settings.RADA_OPEN_DATA_DATASET_ID
         self.last_request_time = 0.0
+        self.request_count = 0  # Track requests per minute
+        self.request_window_start = 0.0  # Start of current minute window
     
     async def _rate_limit(self):
-        """Rate limiting between requests"""
+        """
+        Rate limiting between requests
+        According to API docs: random pause between 5-7 seconds recommended
+        Also enforces 60 requests per minute limit
+        """
         import time
-        current_time = time.time()
-        time_since_last = current_time - self.last_request_time
+        import random
         
+        current_time = time.time()
+        
+        # Check if we need to reset request counter (new minute)
+        if current_time - self.request_window_start >= 60:
+            self.request_count = 0
+            self.request_window_start = current_time
+        
+        # Enforce 60 requests per minute limit
+        if self.request_count >= 60:
+            wait_time = 60 - (current_time - self.request_window_start)
+            if wait_time > 0:
+                logger.warning(f"Rate limit reached (60/min), waiting {wait_time:.1f} seconds...")
+                await asyncio.sleep(wait_time)
+                self.request_count = 0
+                self.request_window_start = time.time()
+        
+        # Random delay between 5-7 seconds (as per API documentation)
+        time_since_last = current_time - self.last_request_time
         if time_since_last < self.delay:
-            await asyncio.sleep(self.delay - time_since_last)
+            # Use random delay between 5-7 seconds
+            random_delay = random.uniform(5.0, 7.0)
+            if time_since_last < random_delay:
+                await asyncio.sleep(random_delay - time_since_last)
         
         self.last_request_time = time.time()
+        self.request_count += 1
     
     def _get_headers(self, use_token: bool = False) -> Dict[str, str]:
         """Get request headers"""
@@ -39,23 +67,74 @@ class RadaAPIService:
             return {"User-Agent": self.token}
         return {"User-Agent": "OpenData"}
     
-    async def get_token(self) -> Optional[str]:
-        """Get API token from Rada"""
+    async def get_token(self, force_refresh: bool = False) -> Optional[str]:
+        """
+        Get API token from Rada
+        Token is valid for 86400 seconds (24 hours) from 0:00 to 23:59 each day
+        According to API docs: requesting token before each request is FORBIDDEN (IP will be blocked)
+        """
+        import time
+        from datetime import datetime, timedelta
+        
+        # Check if we have a valid token that hasn't expired
+        if not force_refresh and self.token and self.token_expires_at:
+            if time.time() < self.token_expires_at:
+                logger.debug("Using existing valid token")
+                return self.token
+            else:
+                logger.info("Token expired, refreshing...")
+        
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.get(
                     f"{self.base_url}/api/token",
-                    timeout=30.0
+                    timeout=30.0,
+                    headers={"User-Agent": "OpenData"}  # Use OpenData for token request
                 )
                 if response.status_code == 200:
                     token = response.text.strip()
-                    logger.info("Successfully obtained Rada API token")
+                    self.token = token
+                    # Token expires at end of day (23:59:59) or after 86400 seconds
+                    # For simplicity, set expiration to 23 hours from now (safer)
+                    self.token_expires_at = time.time() + (23 * 3600)
+                    logger.info("Successfully obtained Rada API token (valid for ~23 hours)")
                     return token
                 else:
                     logger.error(f"Failed to get token: {response.status_code}")
                     return None
         except Exception as e:
             logger.error(f"Error getting token: {e}")
+            return None
+    
+    async def check_limits(self) -> Optional[Dict[str, Any]]:
+        """
+        Check API limits
+        According to API docs: checking limits before each request is FORBIDDEN
+        Use this method sparingly, not before every request!
+        
+        Returns:
+            Dict with limit information or None if check failed
+        """
+        if not self.token:
+            logger.warning("Cannot check limits without token")
+            return None
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{self.base_url}/api/limits",
+                    headers={"User-Agent": self.token},
+                    timeout=30.0
+                )
+                if response.status_code == 200:
+                    limits = response.json()
+                    logger.info(f"API limits: {limits}")
+                    return limits
+                else:
+                    logger.warning(f"Failed to check limits: {response.status_code}")
+                    return None
+        except Exception as e:
+            logger.warning(f"Error checking limits: {e}")
             return None
     
     async def get_document_json(self, nreg: str) -> Optional[Dict[str, Any]]:
@@ -65,10 +144,10 @@ class RadaAPIService:
         """
         await self._rate_limit()
         
-        # Try to get token if not set
-        if not self.token:
-            logger.info("RADA_API_TOKEN not set, trying to get token automatically...")
-            self.token = await self.get_token()
+        # Try to get/refresh token if needed (but not before every request!)
+        if not self.token or (self.token_expires_at and time.time() >= self.token_expires_at):
+            logger.info("Token missing or expired, obtaining new token...")
+            await self.get_token()
         
         from urllib.parse import quote
         

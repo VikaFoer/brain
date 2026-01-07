@@ -28,10 +28,15 @@ class Settings(BaseSettings):
     WANDB_ENTITY: Optional[str] = None  # W&B entity/team name (optional)
     
     # Rada API
-    RADA_API_TOKEN: Optional[str] = None
+    # According to API docs: https://data.rada.gov.ua/open/main/api/page3
+    # - Token valid for 86400 seconds (24 hours) from 0:00 to 23:59
+    # - Rate limit: 60 requests/minute, 100000 requests/day, 200MB/day, 800000 pages/day
+    # - Recommended delay: 5-7 seconds between requests (random)
+    # - DO NOT request token or check limits before each request (IP will be blocked)
+    RADA_API_TOKEN: Optional[str] = None  # Get from https://data.rada.gov.ua/api/token (after IP registration)
     RADA_API_BASE_URL: str = "https://data.rada.gov.ua"
-    RADA_API_RATE_LIMIT: int = 60  # запитів на хвилину
-    RADA_API_DELAY: float = 6.0  # секунд між запитами
+    RADA_API_RATE_LIMIT: int = 60  # запитів на хвилину (according to API docs)
+    RADA_API_DELAY: float = 6.0  # базова затримка, фактично використовується 5-7 сек (random)
     RADA_OPEN_DATA_DATASET_ID: Optional[str] = None  # ID набору даних з порталу відкритих даних (https://data.rada.gov.ua/open/data/)
     
     # PostgreSQL

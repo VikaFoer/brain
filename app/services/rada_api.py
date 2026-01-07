@@ -386,6 +386,10 @@ class RadaAPIService:
                 soup = BeautifulSoup(response.text, 'html.parser')
                 documents = []
                 seen_nregs = set()
+                invalid_count = 0
+                total_links_found = 0
+                
+                logger.info(f"Parsing HTML from {url}, HTML length: {len(response.text)}")
                 
                 # Find all document links
                 for link in soup.find_all('a', href=True):
